@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Models\AccountType;
 use App\Models\ChartAccount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,7 +61,9 @@ class ChartAccountController extends Controller
     public function options()
     {
         return response()->json([
-            'types'        => self::TYPES,
+            'types'  => AccountType::query()
+                ->where('parent_id', 0)
+                ->get(),
             'detail_types' => self::DETAIL_TYPES,
         ]);
     }
@@ -71,7 +74,7 @@ class ChartAccountController extends Controller
 
         $rows = ChartAccount::where('company_id', $request->company_id)
             ->orderBy('account_no')
-            ->get(['id','company_id','account_no','name','type','detail_type','parent_id','is_header','is_active','balance']);
+            ->get(['id','company_id','account_no','name','type','detail_type','parent_id','is_active','balance']);
 
         $byId = [];
         foreach ($rows as $r) { $r->children = []; $byId[$r->id] = $r; }
@@ -97,7 +100,6 @@ class ChartAccountController extends Controller
             'type'        => ['required', Rule::in(self::TYPES)],
             'detail_type' => ['nullable','max:255'],
             'parent_id'   => ['nullable','integer','exists:chart_accounts,id'],
-            'is_header'   => ['boolean'],
             'is_active'   => ['boolean'],
             'balance'     => ['nullable','numeric'],
         ]);
@@ -126,7 +128,6 @@ class ChartAccountController extends Controller
             'type'        => $request->type,
             'detail_type' => $request->detail_type,
             'parent_id'   => $request->parent_id,
-            'is_header'   => (bool)$request->boolean('is_header'),
             'is_active'   => (bool)$request->boolean('is_active', true),
             'balance'     => $request->input('balance', 0),
             'created_by'  => $actor,
@@ -148,7 +149,6 @@ class ChartAccountController extends Controller
             'type'        => ['sometimes', Rule::in(self::TYPES)],
             'detail_type' => ['sometimes','nullable','max:255'],
             'parent_id'   => ['sometimes','nullable','integer','exists:chart_accounts,id'],
-            'is_header'   => ['sometimes','boolean'],
             'is_active'   => ['sometimes','boolean'],
         ]);
 
@@ -166,12 +166,6 @@ class ChartAccountController extends Controller
             }
         }
 
-        if ($request->has('is_header') && !$request->boolean('is_header')) {
-            $hasChildren = ChartAccount::where('parent_id',$chartAccount->id)->exists();
-            if ($hasChildren) {
-                return response()->json(['message' => 'Account has children; cannot unset header'], 422);
-            }
-        }
 
         $newType = $request->input('type', $chartAccount->type);
         if ($request->has('detail_type') && $request->detail_type !== null) {
@@ -181,7 +175,7 @@ class ChartAccountController extends Controller
         }
 
         $chartAccount->fill($request->only([
-            'name','type','detail_type','parent_id','is_header','is_active'
+            'name','type','detail_type','parent_id','is_active'
         ]));
         $chartAccount->updated_by = optional($request->user())->id;
         $chartAccount->save();

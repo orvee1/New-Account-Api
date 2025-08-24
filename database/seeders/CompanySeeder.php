@@ -69,7 +69,7 @@ class CompanySeeder extends Seeder
             [
                 'company_id'    => $innovusId,
                 'name'          => 'Innovus Owner',
-                'email'         => 'innovus.owner@example.test', // unique
+                'email'         => 'admin@gmail.com', // unique
                 'phone_number'  => '01900000001',
                 'password'      => Hash::make('123456'),
                 'role'          => 'owner',

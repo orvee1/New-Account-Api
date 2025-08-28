@@ -6,32 +6,25 @@ use App\Http\Controllers\Controller;
 use App\Models\AccountType;
 use App\Models\ChartAccount;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class ChartAccountController extends Controller
 {
-    public const TYPES = ['asset','liability','equity','income','expense'];
-
-    public const DETAIL_TYPES = [
-        'asset'     => ['Current Assets','Non-current Assets','Fixed Assets','Bank','Cash','Accounts Receivable','Inventory','Prepaid Expenses','Other Assets'],
-        'liability' => ['Current Liabilities','Non-current Liabilities','Accounts Payable','Taxes Payable','Accrued Expenses','Loans'],
-        'equity'    => ['Owner’s Equity','Retained Earnings','Common Stock','Capital'],
-        'income'    => ['Operating Income','Non-operating Income','Sales Revenue','Service Revenue','Other Income'],
-        'expense'   => ['Operating Expenses','Cost of Goods Sold','Administrative Expenses','Selling Expenses','Other Expenses'],
-    ];
 
     public function index(Request $request)
     {
         $request->validate([
             'company_id' => ['required','exists:companies,id'],
-            'type'       => ['nullable', Rule::in(self::TYPES)],
+            'type'       => ['nullable'],
             'detail_type'=> ['nullable','string','max:255'],
             'per_page'   => ['nullable','integer','min:1','max:100'],
             'trashed'    => ['nullable', Rule::in(['with','only'])],
         ]);
 
-        $companyId = (int) $request->company_id;
+        $user = Auth::user();
+
         $q       = $request->query('q');
         $type    = $request->query('type');
         $detail  = $request->query('detail_type');
@@ -39,7 +32,7 @@ class ChartAccountController extends Controller
         $trashed = $request->query('trashed');
 
         $query = ChartAccount::query()
-            ->where('company_id', $companyId)
+            ->where('company_id', $user->company_id ?? 0)
             ->when($trashed === 'with', fn($q) => $q->withTrashed())
             ->when($trashed === 'only', fn($q) => $q->onlyTrashed())
             ->when($q, function ($qq) use ($q) {
@@ -61,10 +54,9 @@ class ChartAccountController extends Controller
     public function options()
     {
         return response()->json([
-            'types'  => AccountType::query()
+            'types' => AccountType::query()
                 ->where('parent_id', 0)
-                ->get(),
-            'detail_types' => self::DETAIL_TYPES,
+                ->get(['id', 'name', 'parent_id'])
         ]);
     }
 
@@ -72,7 +64,9 @@ class ChartAccountController extends Controller
     {
         $request->validate(['company_id' => ['required','exists:companies,id']]);
 
-        $rows = ChartAccount::where('company_id', $request->company_id)
+        $user = Auth::user();
+
+        $rows = ChartAccount::where('company_id', $user->company_id ?? 0)
             ->orderBy('account_no')
             ->get(['id','company_id','account_no','name','type','detail_type','parent_id','is_active','balance']);
 
@@ -91,29 +85,22 @@ class ChartAccountController extends Controller
 
     public function store(Request $request)
     {
+        $user = Auth::user();
         $request->validate([
-            'company_id'  => ['required','exists:companies,id'],
             'account_no'  => ['required','max:20', Rule::unique('chart_accounts')->where(
-                fn($q) => $q->where('company_id', $request->company_id)->whereNull('deleted_at')
+                fn($q) => $q->where('company_id', $user->company_id)->whereNull('deleted_at')
             )],
             'name'        => ['required','max:255'],
-            'type'        => ['required', Rule::in(self::TYPES)],
+            'type'        => ['required'],
             'detail_type' => ['nullable','max:255'],
             'parent_id'   => ['nullable','integer','exists:chart_accounts,id'],
             'is_active'   => ['boolean'],
             'balance'     => ['nullable','numeric'],
         ]);
 
-        if ($request->filled('detail_type')) {
-            $t = $request->input('type');
-            if (isset(self::DETAIL_TYPES[$t]) && !in_array($request->detail_type, self::DETAIL_TYPES[$t])) {
-                return response()->json(['message' => 'Invalid detail_type for type'], 422);
-            }
-        }
-
         if ($request->filled('parent_id')) {
             $parentOk = ChartAccount::where('id',$request->parent_id)
-                ->where('company_id',$request->company_id)->exists();
+                ->where('company_id',$user->company_id)->exists();
             if (!$parentOk) {
                 return response()->json(['message' => 'Parent must belong to the same company'], 422);
             }
@@ -122,7 +109,7 @@ class ChartAccountController extends Controller
         $actor = optional($request->user())->id;
 
         $acc = ChartAccount::create([
-            'company_id'  => $request->company_id,
+            'company_id'  => $user->company_id,
             'account_no'  => $request->account_no,
             'name'        => $request->name,
             'type'        => $request->type,
@@ -146,7 +133,7 @@ class ChartAccountController extends Controller
     {
         $request->validate([
             'name'        => ['sometimes','required','max:255'],
-            'type'        => ['sometimes', Rule::in(self::TYPES)],
+            'type'        => ['sometimes'],
             'detail_type' => ['sometimes','nullable','max:255'],
             'parent_id'   => ['sometimes','nullable','integer','exists:chart_accounts,id'],
             'is_active'   => ['sometimes','boolean'],
@@ -168,11 +155,6 @@ class ChartAccountController extends Controller
 
 
         $newType = $request->input('type', $chartAccount->type);
-        if ($request->has('detail_type') && $request->detail_type !== null) {
-            if (isset(self::DETAIL_TYPES[$newType]) && !in_array($request->detail_type, self::DETAIL_TYPES[$newType])) {
-                return response()->json(['message' => 'Invalid detail_type for type'], 422);
-            }
-        }
 
         $chartAccount->fill($request->only([
             'name','type','detail_type','parent_id','is_active'

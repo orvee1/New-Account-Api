@@ -16,7 +16,9 @@ class LoginController extends Controller
             'password'=>'required|string'
         ]);
 
-        $user= CompanyUser::where('email', $request->email)->first();
+        $user= CompanyUser::query()
+            ->with('company:id,name')
+            ->where('email', $request->email)->first();
      if($user && Hash::check($request->password,$user->password)){
         Auth::login($user);
         $token=$user->createToken('auth_token')->plainTextToken;

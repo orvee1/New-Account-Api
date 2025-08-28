@@ -16,20 +16,7 @@ class CompanyUser extends Authenticatable implements MustVerifyEmail,CanResetPas
 
     protected $table = 'company_users';
 
-    protected $fillable = [
-        'company_id',
-        'user_id',
-        'role',
-        'status',
-        'invited_at',
-        'joined_at',
-        'last_login_at',
-        'is_primary',
-        'permissions',
-        'notes',
-        'created_by',
-        'updated_by',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'invited_at' => 'datetime',

@@ -1,157 +1,288 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Company;
-use App\Models\User;
+use App\Models\CompanyUser;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Carbon\Carbon;
 
 class CompanyUserController extends Controller
 {
-    public function index(Company $company)
-    {
-        $members = $company->users()
-            ->withPivot('role','status','invited_at','joined_at','last_login_at','is_primary','permissions','notes','created_by','updated_by')
-            ->get();
+    // public function __construct()
+    // {
+    //     $this->middleware('auth'); // add gates/policies if you use them
+    // }
 
-        return response()->json($members);
+    /**
+     * GET /admin/company_user
+     * Filters: ?q=&company_id=&role=&status=&per_page=
+     */
+    public function index(Request $request)
+    {
+        $perPage = (int) $request->input('per_page', 20);
+
+        $query = CompanyUser::query()
+            ->with('company:id,name')
+            ->when($request->filled('q'), function ($q) use ($request) {
+                $term = $request->q;
+                $q->where(function ($sub) use ($term) {
+                    $sub->where('name', 'like', "%{$term}%")
+                        ->orWhere('email', 'like', "%{$term}%")
+                        ->orWhere('phone_number', 'like', "%{$term}%");
+                });
+            })
+            ->when($request->filled('company_id'), fn($q) => $q->where('company_id', $request->company_id))
+            ->when($request->filled('role') && $request->role !== 'all', fn($q) => $q->where('role', $request->role))
+            ->when($request->filled('status') && $request->status !== 'all', fn($q) => $q->where('status', $request->status))
+            ->latest('id');
+
+        $users = $query->paginate($perPage)->withQueryString();
+
+        $filters = [
+            'q'         => $request->q,
+            'company_id'=> $request->company_id,
+            'role'      => $request->input('role', 'all'),
+            'status'    => $request->input('status', 'all'),
+            'per_page'  => $perPage,
+        ];
+
+        $companies = Company::select('id', 'name')->orderBy('name')->get();
+
+        return view('admin.company_user.index', compact('users', 'filters', 'companies'));
     }
 
-    public function store(Request $request, Company $company)
+    /**
+     * GET /admin/company_user/create
+     */
+    public function create()
+    {
+        $companies = Company::select('id', 'name')->orderBy('name')->get();
+        $roles = ['owner', 'admin', 'accountant', 'viewer'];
+        $statuses = ['active', 'inactive'];
+
+        return view('admin.company_user.create', compact('companies', 'roles', 'statuses'));
+    }
+
+    /**
+     * POST /admin/company_user
+     */
+    public function store(Request $request)
     {
         $data = $request->validate([
-            'user_id'     => ['required','exists:users,id'],
-            'role'        => ['nullable', Rule::in(['owner','admin','accountant','viewer'])],
-            'status'      => ['nullable', Rule::in(['active','inactive'])],
-            'is_primary'  => ['nullable','boolean'],
-            'permissions' => ['nullable','array'],
-            'notes'       => ['nullable','string'],
-            'invited_at'  => ['nullable','date'],
-            'joined_at'   => ['nullable','date'],
+            'company_id'   => ['required', 'exists:companies,id'],
+            'name'         => ['required', 'string', 'max:255'],
+            'email'        => ['nullable', 'email', 'max:255', 'unique:company_users,email'],
+            'photo'        => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif', 'max:2048'],
+            'phone_number' => ['required', 'string', 'max:40'],
+            'password'     => ['required', 'string', 'min:8', 'confirmed'],
+            'role'         => ['required', Rule::in(['owner', 'admin', 'accountant', 'viewer'])],
+            'status'       => ['required', Rule::in(['active', 'inactive'])],
+            'is_primary'   => ['sometimes', 'boolean'],
+            'permissions'  => ['nullable', 'array'],
         ]);
 
-        $authId = $request->user()->id;
-
-        return DB::transaction(function () use ($data, $company, $authId) {
-            $payload = [
-                'role'        => $data['role']        ?? 'viewer',
-                'status'      => $data['status']      ?? 'active',
-                'is_primary'  => (bool)($data['is_primary'] ?? false),
-                'permissions' => $data['permissions'] ?? null,
-                'notes'       => $data['notes']       ?? null,
-                'invited_at'  => $data['invited_at']  ?? now(),
-                'joined_at'   => $data['joined_at']   ?? now(),
-                'created_by'  => $authId,
-                'updated_by'  => $authId,
-            ];
-
-            $company->users()->syncWithoutDetaching([
-                $data['user_id'] => $payload
-            ]);
-
-            if (!empty($payload['is_primary'])) {
-                $this->ensureSinglePrimary($data['user_id'], $company->id, $authId);
+        // Optional: Enforce only one owner per company
+        if (($data['role'] ?? null) === 'owner') {
+            $existsOwner = CompanyUser::where('company_id', $data['company_id'])
+                ->where('role', 'owner')
+                ->exists();
+            if ($existsOwner) {
+                return back()->withErrors(['role' => 'This company already has an Owner.'])->withInput();
             }
+        }
 
-            $member = $company->users()->where('users.id', $data['user_id'])->first();
-            return response()->json($member, 201);
-        });
+        // Handle photo upload
+        if ($request->hasFile('photo')) {
+            $data['photo'] = $request->file('photo')->store('company_users/photos', 'public');
+        }
+
+        // permissions may come as [] or JSON string from UI
+        if (is_string($request->permissions)) {
+            $decoded = json_decode($request->permissions, true);
+            $data['permissions'] = is_array($decoded) ? $decoded : null;
+        }
+
+        // Auto mark joined_at if active on creation (optional)
+        if (($data['status'] ?? null) === 'active') {
+            $data['joined_at'] = Carbon::now();
+        }
+
+        $data['created_by'] = Auth::id();
+
+        $user = CompanyUser::create($data);
+
+        // If set as primary, unset others in same company
+        if ($user->is_primary) {
+            CompanyUser::where('company_id', $user->company_id)
+                ->where('id', '<>', $user->id)
+                ->update(['is_primary' => false]);
+        }
+
+        return redirect()->route('admin.company_user.edit', $user)
+            ->with('success', 'Company user created successfully.');
     }
 
-    public function update(Request $request, Company $company, User $user)
+    /**
+     * GET /admin/company_user/{companyUser}
+     */
+    public function show(CompanyUser $companyUser)
+    {
+        $companyUser->load('company:id,name');
+        return view('admin.company_user.show', compact('companyUser'));
+    }
+
+    /**
+     * GET /admin/company_user/{companyUser}/edit
+     */
+    public function edit(CompanyUser $companyUser)
+    {
+        $companies = Company::select('id', 'name')->orderBy('name')->get();
+        $roles = ['owner', 'admin', 'accountant', 'viewer'];
+        $statuses = ['active', 'inactive'];
+
+        return view('admin.company_user.edit', compact('companyUser', 'companies', 'roles', 'statuses'));
+    }
+
+    /**
+     * PUT/PATCH /admin/company_user/{companyUser}
+     */
+    public function update(Request $request, CompanyUser $companyUser)
     {
         $data = $request->validate([
-            'role'          => ['sometimes', Rule::in(['owner','admin','accountant','viewer'])],
-            'status'        => ['sometimes', Rule::in(['active','inactive'])],
-            'is_primary'    => ['sometimes','boolean'],
-            'permissions'   => ['sometimes','nullable','array'],
-            'notes'         => ['sometimes','nullable','string'],
-            'last_login_at' => ['sometimes','nullable','date'],
-            'joined_at'     => ['sometimes','nullable','date'],
+            'company_id'   => ['required', 'exists:companies,id'],
+            'name'         => ['required', 'string', 'max:255'],
+            'email'        => ['nullable', 'email', 'max:255', 'unique:company_users,email,' . $companyUser->id],
+            'photo'        => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif', 'max:2048'],
+            'remove_photo' => ['sometimes', 'boolean'],
+            'phone_number' => ['required', 'string', 'max:40'],
+            'password'     => ['nullable', 'string', 'min:8', 'confirmed'],
+            'role'         => ['required', Rule::in(['owner', 'admin', 'accountant', 'viewer'])],
+            'status'       => ['required', Rule::in(['active', 'inactive'])],
+            'is_primary'   => ['sometimes', 'boolean'],
+            'permissions'  => ['nullable', 'array'],
         ]);
 
-        $authId = $request->user()->id;
-
-        $exists = DB::table('company_users')
-            ->where('company_id', $company->id)
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if (!$exists) {
-            return response()->json(['message' => 'User is not a member of this company'], 404);
+        // Enforce single owner per company (ignore self)
+        if (($data['role'] ?? null) === 'owner') {
+            $existsOwner = CompanyUser::where('company_id', $data['company_id'])
+                ->where('role', 'owner')
+                ->where('id', '<>', $companyUser->id)
+                ->exists();
+            if ($existsOwner) {
+                return back()->withErrors(['role' => 'This company already has an Owner.'])->withInput();
+            }
+        } else {
+            // Prevent removing the last Owner
+            if ($companyUser->role === 'owner') {
+                $otherOwners = CompanyUser::where('company_id', $companyUser->company_id)
+                    ->where('id', '<>', $companyUser->id)
+                    ->where('role', 'owner')
+                    ->count();
+                if ($otherOwners === 0) {
+                    return back()->withErrors(['role' => 'You cannot demote the only Owner of this company.'])->withInput();
+                }
+            }
         }
 
-        $updates = array_merge($data, [
-            'updated_by' => $authId,
-            'updated_at' => now(),
+        if ($request->boolean('remove_photo') && $companyUser->photo) {
+            Storage::disk('public')->delete($companyUser->photo);
+            $data['photo'] = null;
+        }
+
+        if ($request->hasFile('photo')) {
+            if ($companyUser->photo) {
+                Storage::disk('public')->delete($companyUser->photo);
+            }
+            $data['photo'] = $request->file('photo')->store('company_users/photos', 'public');
+        }
+
+        // Only set password if provided (mutator will hash)
+        if (empty($data['password'])) {
+            unset($data['password']);
+        }
+
+        if (is_string($request->permissions)) {
+            $decoded = json_decode($request->permissions, true);
+            $data['permissions'] = is_array($decoded) ? $decoded : null;
+        }
+
+        // Auto set joined_at when moving to active and it was null
+        if (($data['status'] ?? null) === 'active' && is_null($companyUser->joined_at)) {
+            $data['joined_at'] = Carbon::now();
+        }
+
+        $data['updated_by'] = Auth::id();
+
+        $companyUser->update($data);
+
+        // Ensure only one primary user per company if flagged
+        if ($request->boolean('is_primary')) {
+            CompanyUser::where('company_id', $companyUser->company_id)
+                ->where('id', '<>', $companyUser->id)
+                ->update(['is_primary' => false]);
+        }
+
+        return redirect()->route('admin.company_user.edit', $companyUser)
+            ->with('success', 'Company user updated successfully.');
+    }
+
+    /**
+     * DELETE /admin/company_user/{companyUser}
+     */
+    public function destroy(CompanyUser $companyUser)
+    {
+        // Prevent deleting the last Owner
+        if ($companyUser->role === 'owner') {
+            $otherOwners = CompanyUser::where('company_id', $companyUser->company_id)
+                ->where('id', '<>', $companyUser->id)
+                ->where('role', 'owner')
+                ->count();
+            if ($otherOwners === 0) {
+                return back()->withErrors(['delete' => 'You cannot delete the only Owner of this company.']);
+            }
+        }
+
+        $companyUser->update(['deleted_by' => Auth::id()]);
+        $companyUser->delete();
+
+        return redirect()->route('admin.company_user.index')
+            ->with('success', 'Company user deleted successfully.');
+    }
+
+    /**
+     * POST /admin/company_user/{companyUser}/toggle-status
+     */
+    public function toggleStatus(CompanyUser $companyUser)
+    {
+        $next = $companyUser->status === 'active' ? 'inactive' : 'active';
+        $companyUser->update([
+            'status'     => $next,
+            'updated_by' => Auth::id(),
+            'joined_at'  => $companyUser->joined_at ?: ($next === 'active' ? Carbon::now() : $companyUser->joined_at),
         ]);
 
-        $company->users()->updateExistingPivot($user->id, $updates);
-
-        if (array_key_exists('is_primary', $data) && $data['is_primary']) {
-            $this->ensureSinglePrimary($user->id, $company->id, $authId);
-        }
-
-        $member = $company->users()->where('users.id', $user->id)->first();
-        return response()->json($member);
+        return back()->with('success', "Status changed to {$next}.");
     }
 
-    public function destroy(Company $company, User $user)
+    /**
+     * POST /admin/company_user/{companyUser}/make-primary
+     */
+    public function makePrimary(CompanyUser $companyUser)
     {
-        $company->users()->detach($user->id);
-        return response()->json(['message' => 'Member removed']);
-    }
-
-    public function setPrimary(Request $request, Company $company, User $user)
-    {
-        $authId = $request->user()->id;
-
-        $exists = DB::table('company_users')
-            ->where('company_id', $company->id)
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if (!$exists) {
-            return response()->json(['message' => 'User is not a member of this company'], 404);
-        }
-
-        $this->ensureSinglePrimary($user->id, $company->id, $authId);
-
-        $company->users()->updateExistingPivot($user->id, [
+        $companyUser->update([
             'is_primary' => true,
-            'updated_by' => $authId,
-            'updated_at' => now(),
+            'updated_by' => Auth::id(),
         ]);
 
-        return response()->json(['message' => 'Primary company set']);
-    }
+        CompanyUser::where('company_id', $companyUser->company_id)
+            ->where('id', '<>', $companyUser->id)
+            ->update(['is_primary' => false]);
 
-    public function transferOwnership(Request $request, Company $company, User $user)
-    {
-        $company->users()->syncWithoutDetaching([
-            $user->id => [
-                'role'       => 'owner',
-                'status'     => 'active',
-                'joined_at'  => now(),
-                'updated_by' => $request->user()->id,
-            ],
-        ]);
-
-        $company->owner_id = $user->id;
-        $company->updated_by = $request->user()->id;
-        $company->save();
-
-        return response()->json(['message' => 'Ownership transferred', 'company' => $company->fresh('owner')]);
-    }
-
-    private function ensureSinglePrimary(int $userId, int $companyId, int $actorId): void
-    {
-        DB::table('company_users')
-            ->where('user_id', $userId)
-            ->where('company_id', '!=', $companyId)
-            ->update(['is_primary' => false, 'updated_by' => $actorId, 'updated_at' => now()]);
+        return back()->with('success', 'Marked as primary user for this company.');
     }
 }

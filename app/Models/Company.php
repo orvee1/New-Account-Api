@@ -2,50 +2,60 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Company extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = [
-        'name',
-        'slug',
-        'email',
-        'phone',
-        'address',
-        'logo',
-        'industry_type',
-        'registration_no',
-        'website',
-        'status',
-        'is_verified',
-        'owner_id',
-        'created_by',
-        'updated_by',
+    protected $guarded = [];
+
+    protected $casts = [
+        'status' => 'string',
     ];
 
-    public function users()
+    protected $appends = [
+        'logo_url',
+        'is_active',
+    ];
+
+    /* ----------------------------- Accessors ----------------------------- */
+
+    public function getLogoUrlAttribute(): ?string
     {
-        return $this->belongsToMany(User::class, 'company_users')
-                    ->withPivot('role', 'status', 'invited_at', 'joined_at', 'last_login_at', 'is_primary', 'permissions', 'notes', 'created_by', 'updated_by')
-                    ->withTimestamps();
+        return $this->logo ? Storage::url($this->logo) : null;
     }
 
-    public function owner()
+    public function getIsActiveAttribute(): bool
     {
-        return $this->belongsTo(User::class, 'owner_id');
+        return $this->status === 'active';
     }
 
-    public function createdBy()
+    /* ------------------------------ Scopes -------------------------------- */
+
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
+    /* --------------------------- Relationships --------------------------- */
+
+    public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
     }
 
-    public function updatedBy()
+    public function updater()
     {
         return $this->belongsTo(User::class, 'updated_by');
+    }
+
+    public function deleter()
+    {
+        return $this->belongsTo(User::class, 'deleted_by');
     }
 }

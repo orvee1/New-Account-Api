@@ -8,6 +8,8 @@ use App\Http\Controllers\Admin\MenuController;
 use App\Http\Controllers\Admin\PermissionConroller;
 use App\Http\Controllers\Admin\RoleConroller;
 use App\Http\Controllers\Admin\AdminOtpSendController;
+use App\Http\Controllers\Admin\CompanyController;
+use App\Http\Controllers\API\CompanyUserController;
 use App\Http\Controllers\ProfileController;
 use App\Models\Menu;
 use Illuminate\Support\Facades\Cache;
@@ -34,6 +36,14 @@ Route::group(['middleware' => ['auth'], 'prefix' => 'admin'], function () {
     Route::post('send-otp', [AdminOtpSendController::class, '@send_otp'])->name('admin.send-otp');
     Route::post('verify-otp', [AdminOtpSendController::class, 'verify_otp'])->name('admin.verify-otp');
     Route::post('change-password', [AdminOtpSendController::class, '@change_password'])->name('admin.change-password');
+    Route::resource('companies', CompanyController::class);
+    Route::post('companies/{company}/toggle-status', [CompanyController::class, 'toggleStatus'])
+        ->name('companies.toggle-status');
+    Route::resource('company-users', CompanyUserController::class);
+    Route::post('company-users/{companyUser}/toggle-status', [CompanyUserController::class, 'toggleStatus'])
+        ->name('company-users.toggle-status');
+    Route::post('company-users/{companyUser}/make-primary', [CompanyUserController::class, 'makePrimary'])
+        ->name('company-users.make-primary');;
 });
 
 // 'admin.device.browser', 'admin' need to use for admin device

@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Activity;
-use App\Models\Institutes;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Session;
@@ -114,17 +113,7 @@ class AdministratorController extends Controller
 
         $this->permission_rest();
 
-        // return
-        $institutes = Institutes::query()
-            ->with('active_courses:id,name,institute_id')
-            ->where('status', 1)
-            ->get([
-                'id',
-                'name',
-                'type',
-            ]);
-
-        return view('admin.administrator.edit', compact('user', 'title', 'roles', 'institutes'));
+        return view('admin.administrator.edit', compact('user', 'title', 'roles'));
     }
 
     public function update(Request $request, $id)

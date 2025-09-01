@@ -28,10 +28,6 @@ class DatabaseSeeder extends Seeder
             $this->call(AdminDeviceLogSeeder::class);
         }
 
-        if (class_exists(\Database\Seeders\CompanySeeder::class)) {
-            $this->call(CompanySeeder::class);
-        }
-
 
         $admin = User::updateOrCreate(
             ['email' => 'jahirul.iit5th@gmail.com'],

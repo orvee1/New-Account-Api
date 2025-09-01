@@ -17,16 +17,12 @@ class RolePermissionSeeder extends Seeder
         $permissions = [
             'menus',
             'admin.device',
-            'course',
-            'course.session',
-            'course.package',
-            'batch',
-            'institute',
-            'institute.faculty',
-            'institute.discipline',
-            'topic',
-            'module',
-            'doctor',
+            'company.user.view',
+            'setting.view',
+            'user.view',
+            'role.view',
+            'company.view',
+            'company.view',
         ];
 
         foreach ($permissions as $p) {

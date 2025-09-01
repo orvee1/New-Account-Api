@@ -19,7 +19,7 @@
             Title <span class="text-red-500">*</span>
         </label>
         <input type="text" name="title" value="{{ old('title') ?? $menu->title }}" required placeholder="Title"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            class="block p-2 border border-slate-500 w-full rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
         <input type="hidden" name="id" value="{{ $menu->id }}">
     </div>
 
@@ -29,7 +29,7 @@
             Parent <span class="text-red-500">*</span>
         </label>
         <select name="parent_id"
-            class="select2 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            class="select2 block  w-full rounded-md p-2 border border-slate-500 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
             <option value="0">---Select---</option>
             @foreach($menus as $index => $value)
             <option value="{{ $index }}" @if($menu->parent_id == $index) selected @endif>{{ $value }}</option>
@@ -43,7 +43,7 @@
             Permission <span class="text-red-500">*</span>
         </label>
         <select name="permission"
-            class="select3 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            class="select3 block w-full rounded-md p-2 border border-slate-500 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
             <option value="0">---Select---</option>
             @foreach($permissions as $id => $value)
             <option value="{{ $value->name }}" @if($value->name == $menu->permission) selected @endif>
@@ -59,7 +59,7 @@
             URL <span class="text-red-500">*</span>
         </label>
         <input type="text" name="url" value="{{ old('url') ?? $menu->url }}" required placeholder="URL"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            class="block w-full rounded-md p-2 border border-slate-500 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
     </div>
 
     {{-- Icon Class --}}
@@ -68,7 +68,7 @@
             Icon Class Name <span class="text-red-500">*</span>
         </label>
         <input type="text" name="icon" value="{{ old('icon') ?? $menu->icon }}" required placeholder="Enter Icon Class"
-            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            class="block w-full rounded-md p-2 border border-slate-500 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
     </div>
 
 </div>

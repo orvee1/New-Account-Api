@@ -58,7 +58,7 @@ Route::group(['middleware' => ['auth'], 'prefix' => 'admin'], function () {
                 ->get();
         });
         return view('admin.dashboard', compact('title', 'menus'));
-    })->middleware(['auth', 'verified'])->name('dashboard');
+    })->middleware(['auth'])->name('dashboard');
 
     Route::resource('administrator', AdministratorController::class)->middleware(['role:Administrator|Developer']);
     Route::resource('roles', RoleConroller::class)->middleware(['role:Administrator|Developer']);

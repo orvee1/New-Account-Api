@@ -32,7 +32,7 @@ class MenuSeeder extends Seeder
         $make('Companies', 0, '/admin/companies', 'company.view', 'fas fa-building');
         $make('Users', 0, '/admin/users', 'user.view', 'fas fa-users');
         $make('Roles & Permissions', 0, '/admin/roles', 'role.view', 'fas fa-user-shield');
-        $make('settings', 0, '/admin/settings', 'setting.view', 'fas fa-cogs');
-        $make('company users', 0, '/admin/company-users', 'company.user.view', 'fas fa-user-friends');
+        $make('Settings', 0, '/admin/settings', 'setting.view', 'fas fa-cogs');
+        $make('Company users', 0, '/admin/company-users', 'company.user.view', 'fas fa-user-friends');
     }
 }

@@ -44,6 +44,6 @@ class AppServiceProvider extends ServiceProvider
             $this->app['request']->server->set('HTTPS', 'on');
         }
 
-        // View::share('menus', $this->menus());
+        View::share('menus', $this->menus());
     }
 }

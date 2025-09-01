@@ -25,10 +25,10 @@
             class="shrink-0 bg-gray-50 flex-col w-full lg:w-auto">
             <div class="shrink-0 grow-0 bg-sky-600 z-30 px-2 h-14 flex items-center gap-2 lg:px-3 print:hidden">
                 <a href="/admin" class="w-10 h-10 bg-white rounded-full p-1">
-                    <img src="https://gen-file.s3.ap-southeast-1.amazonaws.com/logo.png" class="w-full h-full mt-px"
+                    <img src="" class="w-full h-full mt-px"
                         alt="Logo">
                 </a>
-                <input id="navigationSearch" class="px-3 py-1 rounded-md focus:outline-none border shadow grow"
+                <input id="navigationSearch" class="px-3 py-1 bg-white rounded-md focus:outline-none border shadow grow"
                     type="text" placeholder="Search..." autocomplete="off">
                 <div @click="navigationTrigger = !navigationTrigger"
                     class="lg:hidden w-8 border rounded text-center text-xl cursor-pointer bg-white text-sky-600">
@@ -185,7 +185,7 @@
             </ul>
 
             <div class="text-center bg-sky-600 text-white py-3 print:hidden">
-                &copy; {{ date('Y') }} neuronpg.info
+                &copy; {{ date('Y') }} CloudBook
             </div>
         </nav>
         <div class="shrink grow print:overflow-visible">
@@ -198,35 +198,6 @@
                         &#9776;
                     </div>
 
-
-                    @if ($header_has_year_course ?? (false && $years ?? null && $institutes))
-                    <div class="grid gap-4 md:grid-cols-2 2xl:grid-cols-3 print:grid-cols-2">
-
-                        <select id="year_filter_header"
-                            class="block w-full px-3 py-2 border border-gray-400 rounded focus:outline-0">
-                            <option value=""> -- All Year -- </option>
-                            @foreach ($years as $year)
-                            <option value="{{ $year }}" {{ $selected_year==$year ? 'selected' : '' }}>{{ $year }}
-                            </option>
-                            @endforeach
-                        </select>
-
-                        <select id="course_filter_header"
-                            class="block w-full px-3 py-2 border border-gray-400 rounded focus:outline-0">
-                            <option value=""> -- All Course -- </option>
-                            @foreach ($institutes as $institute)
-                            <optgroup label="{{ $institute->name }}">
-                                @foreach ($institute->active_courses as $course)
-                                <option value="{{ $course->id }}" {{ $selected_course_id==$course->id ? 'selected' : ''
-                                    }}>
-                                    {{ $course->name }}</option>
-                                @endforeach
-                            </optgroup>
-                            @endforeach
-                        </select>
-
-                    </div>
-                    @endif
 
 
                     @if ($admin_name = auth()->user()->name ?? 'Admin')

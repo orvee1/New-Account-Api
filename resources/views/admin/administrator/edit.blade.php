@@ -5,7 +5,7 @@
                 <i class="fa fa-reorder"></i> Administrator Edit
             </h2>
 
-            <form action="{{ route( 'admininstrator.update', $user->id ) }}" method="POST"
+            <form action="{{ route( 'administrator.update', $user->id ) }}" method="POST"
                 enctype="multipart/form-data">
                 @csrf
                 @method('PUT')
@@ -64,23 +64,6 @@
                                 roles()->pluck('name')->toArray())) ? 'selected' : '' }}>
                                 {{ $roleValue }}
                             </option>
-                            @endforeach
-                        </select>
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-medium mb-1">Access Courses</label>
-                        <select name="access_course_ids[]" id="access_course_ids" multiple
-                            class="select2 w-full border border-gray-300 rounded px-3 py-2">
-                            @foreach ($institutes as $institute)
-                            <optgroup label="{{ $institute->name }}">
-                                @foreach ($institute->active_courses as $active_course)
-                                <option value="{{ $active_course->id }}" {{ in_array($active_course->id,
-                                    $user->access_course_ids) ? 'selected' : '' }}>
-                                    {{ $active_course->name }}
-                                </option>
-                                @endforeach
-                            </optgroup>
                             @endforeach
                         </select>
                     </div>

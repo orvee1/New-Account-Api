@@ -75,7 +75,7 @@ class CompanyController extends Controller
         $company = Company::create($data);
 
         return redirect()
-            ->route('admin.companies.edit', $company)
+            ->route('companies.edit', $company)
             ->with('success', 'Company created successfully.');
     }
 
@@ -126,7 +126,7 @@ class CompanyController extends Controller
         $company->update($data);
 
         return redirect()
-            ->route('admin.companies.edit', $company)
+            ->route('companies.edit', $company)
             ->with('success', 'Company updated successfully.');
     }
 
@@ -141,7 +141,7 @@ class CompanyController extends Controller
         $company->delete();
 
         return redirect()
-            ->route('admin.companies.index')
+            ->route('companies.index')
             ->with('success', 'Company deleted successfully.');
     }
 

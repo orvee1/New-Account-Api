@@ -58,4 +58,9 @@ class Company extends Model
     {
         return $this->belongsTo(User::class, 'deleted_by');
     }
+
+    public function users()
+    {
+        return $this->hasMany(CompanyUser::class, 'company_id');
+    }
 }

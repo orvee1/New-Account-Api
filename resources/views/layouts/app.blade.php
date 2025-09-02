@@ -7,7 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
     <title>{{ config('app.name', 'Laravel') }}</title>
-
+    <link rel="icon" href="{{ asset('images/logo.png') }}" type="image/png" sizes="16x16">
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
@@ -25,8 +25,7 @@
             class="shrink-0 bg-gray-50 flex-col w-full lg:w-auto">
             <div class="shrink-0 grow-0 bg-sky-600 z-30 px-2 h-14 flex items-center gap-2 lg:px-3 print:hidden">
                 <a href="/admin" class="w-10 h-10 bg-white rounded-full p-1">
-                    <img src="" class="w-full h-full mt-px"
-                        alt="Logo">
+                    <img src="{{ asset('images/logo.png') }}" class="w-full h-full mt-px" alt="Logo">
                 </a>
                 <input id="navigationSearch" class="px-3 py-1 bg-white rounded-md focus:outline-none border shadow grow"
                     type="text" placeholder="Search..." autocomplete="off">

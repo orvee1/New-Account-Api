@@ -1,1 +1,1 @@
-<img src="https://file-neuronpg.s3.ap-southeast-1.amazonaws.com/img/logo.png" alt="neuron exam" width="50" height="50">
+<img src="{{ asset('images/logo.png') }}" alt="cloudbook" width="50" height="50">

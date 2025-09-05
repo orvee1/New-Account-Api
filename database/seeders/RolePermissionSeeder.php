@@ -22,7 +22,6 @@ class RolePermissionSeeder extends Seeder
             'user.view',
             'role.view',
             'company.view',
-            'company.view',
         ];
 
         foreach ($permissions as $p) {

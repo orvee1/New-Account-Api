@@ -1,29 +1,17 @@
 <x-app-layout>
-  <x-slot name="header">
-    <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-      Create Company User
-    </h2>
-  </x-slot>
-
-  <div class="py-6">
-    <div class="max-w-3xl mx-auto sm:px-6 lg:px-8">
-      @if ($errors->any())
-        <div class="mb-4 rounded-md bg-red-50 p-4 text-red-700">
-          <ul class="list-disc ml-5">
-            @foreach ($errors->all() as $error) <li>{{ $error }}</li> @endforeach
-          </ul>
-        </div>
-      @endif
-
-      @include('admin.company_user._form', [
-        'companyUser' => new \App\Models\CompanyUser,
-        'companies'   => $companies,
-        'roles'       => $roles,
-        'statuses'    => $statuses,
-        'action'      => route('admin.company_user.store'),
-        'method'      => 'POST',
-        'submitLabel' => 'Create User',
-      ])
-    </div>
+<div class="max-w-3xl mx-auto px-4 py-8">
+  <div class="mb-6">
+    <h1 class="text-2xl font-bold">Add Company User</h1>
+    <p class="text-sm text-gray-500">Create a user under a company with role & permissions</p>
   </div>
+
+  @include('admin.company_user._form', [
+    'route' => route('company-users.store'),
+    'method' => 'POST',
+    'companyUser' => null,
+    'companies' => $companies,
+    'roles' => $roles,
+    'statuses' => $statuses
+  ])
+</div>
 </x-app-layout>

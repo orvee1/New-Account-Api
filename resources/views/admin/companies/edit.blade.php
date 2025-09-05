@@ -5,7 +5,7 @@
       <div class="flex items-center gap-3">
         <a href="{{ route('companies.index') }}" class="text-sm text-gray-600 hover:underline">← Back</a>
 
-        <form method="POST" action="{{ route('admin.companies.destroy', $company) }}"
+        <form method="POST" action="{{ route('companies.destroy', $company) }}"
           onsubmit="return confirm('Delete this company?');">
           @csrf @method('DELETE')
           <button type="submit" class="text-sm px-3 py-1.5 rounded-md bg-red-50 text-red-700 hover:bg-red-100">
@@ -29,7 +29,7 @@
 
     @include('admin.companies._form', [
     'company' => $company,
-    'action' => route('admin.companies.update', $company),
+    'action' => route('companies.update', $company),
     'method' => 'PUT',
     'submitLabel' => 'Update Company',
     ])

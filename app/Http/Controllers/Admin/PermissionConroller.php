@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Permission;
 use Illuminate\Http\Request;
-use Session;
+use Illuminate\Support\Facades\Session;
+
+// use Session;
 
 class PermissionConroller extends Controller
 {
@@ -73,7 +75,7 @@ class PermissionConroller extends Controller
         Permission::create($request->all());
         Session::flash('message', 'Record created successfully');
 
-        return back();
+        return redirect()->route('admin.permissions.index')->with('success', 'Permission Created Successfully');
 
         //return redirect()->action('Admin\PermissionsController@index');
     }

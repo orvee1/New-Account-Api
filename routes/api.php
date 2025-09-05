@@ -7,7 +7,7 @@ use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\API\ChartAccountController;
-
+use App\Http\Controllers\API\CompanyUserController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -31,6 +31,11 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     // Route::post('/send-otp', [EmailVerificationController::class, 'sendOtp']);
     // Route::post('/verify-otp',[EmailVerificationController::class, 'verifyOtp']);
     // Chart of Accounts
+    Route::apiResource('company-users', CompanyUserController::class);
+    Route::post('company-users/{companyUser}/toggle-status', [CompanyUserController::class, 'toggleStatus'])
+        ->name('api.admin.company-users.toggle-status');
+    Route::post('company-users/{companyUser}/make-primary', [CompanyUserController::class, 'makePrimary'])
+        ->name('api.admin.company-users.make-primary');
     Route::get('/chart-accounts/options', [ChartAccountController::class, 'options']);
     Route::get('/chart-accounts/tree',    [ChartAccountController::class, 'tree']);
 

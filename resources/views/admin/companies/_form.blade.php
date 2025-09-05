@@ -11,9 +11,17 @@ $isEdit = isset($company) && $company?->exists;
   <div class="bg-white shadow-sm ring-1 ring-gray-200 rounded-lg p-6 space-y-6">
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm font-medium text-gray-700">Name <span class="text-red-500">*</span></label>
+         <label class="block text-sm font-medium text-gray-700">
+            Name <span class="text-red-500">*</span>
+          </label>
+        <div class="mt-1 relative">
         <input type="text" name="name" value="{{ old('name', $company->name ?? '') }}"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" required>
+           required
+            aria-invalid="@error('name') true @else false @enderror"
+              aria-describedby="name_help @error('name') name_error @enderror"
+              class="w-full rounded-lg border @error('name') border-red-300 ring-red-200 @else border-gray-300 @enderror
+                     bg-white text-gray-900 placeholder-gray-400
+                     focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 px-3 py-2">
       </div>
 
       <div>

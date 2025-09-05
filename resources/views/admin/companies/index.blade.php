@@ -39,7 +39,7 @@
       <table class="min-w-full divide-y divide-gray-200">
         <thead class="bg-gray-50">
           <tr class="text-left text-xs font-semibold uppercase tracking-wider text-gray-600">
-            <th class="px-4 py-3">#</th>
+            <th class="px-4 py-3">Serial No</th>
             <th class="px-4 py-3">Logo</th>
             <th class="px-4 py-3">Name</th>
             <th class="px-4 py-3">Email</th>
@@ -63,7 +63,7 @@
               @endif
             </td>
             <td class="px-4 py-3">
-              <a href="{{ route('admin.companies.show', $company) }}" class="font-medium text-gray-900 hover:underline">
+              <a href="{{ route('companies.show', $company) }}" class="font-medium text-gray-900 hover:underline">
                 {{ $company->name }}
               </a>
             </td>
@@ -87,14 +87,14 @@
                 <a href="{{ route('companies.edit', $company) }}"
                   class="px-3 py-1.5 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100">Edit</a>
 
-                <form method="POST" action="{{ route('admin.companies.toggle-status', $company) }}">
+                <form method="POST" action="{{ route('companies.toggle-status', $company) }}">
                   @csrf
                   <button type="submit" class="px-3 py-1.5 rounded-md bg-slate-50 text-slate-700 hover:bg-slate-100">
                     Toggle
                   </button>
                 </form>
 
-                <form method="POST" action="{{ route('admin.companies.destroy', $company) }}"
+                <form method="POST" action="{{ route('companies.destroy', $company) }}"
                   onsubmit="return confirm('Delete this company? This action can be undone from Trash only if you keep files.');">
                   @csrf @method('DELETE')
                   <button type="submit" class="px-3 py-1.5 rounded-md bg-red-50 text-red-700 hover:bg-red-100">

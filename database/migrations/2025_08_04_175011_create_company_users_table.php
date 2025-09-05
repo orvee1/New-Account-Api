@@ -12,26 +12,29 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('company_users', function (Blueprint $table) {
-            $table->id();
+             $table->id();
+
             $table->foreignId('company_id')->constrained()->cascadeOnDelete();
-            $table->string('name');
-            $table->string('email')->unique()->nullable();
+            $table->string('name', 150);
+            $table->string('email', 191)->nullable();
+            $table->string('phone_number', 30);
             $table->string('photo')->nullable();
-            $table->string('phone_number');
             $table->string('password');
             $table->rememberToken();
-            $table->enum('role', ['owner', 'admin', 'accountant','viewer'])->default('viewer');
+            $table->enum('role', ['owner', 'admin', 'accountant', 'viewer'])->default('viewer');
             $table->enum('status', ['active', 'inactive'])->default('active');
+            $table->boolean('is_primary')->default(false);
+            $table->json('permissions')->nullable();
             $table->timestamp('invited_at')->nullable();
             $table->timestamp('joined_at')->nullable();
             $table->timestamp('last_login_at')->nullable();
-            $table->boolean('is_primary')->default(false);
-            $table->json('permissions')->nullable();
-            $table->integer('created_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->integer('updated_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->integer('deleted_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('updated_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->foreignId('deleted_by')->nullable()->constrained('users')->nullOnDelete();
             $table->softDeletes();
             $table->timestamps();
+            $table->unique(['company_id','email']);
+            $table->unique(['company_id','phone_number']);
         });
     }
 

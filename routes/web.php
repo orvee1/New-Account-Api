@@ -9,7 +9,7 @@ use App\Http\Controllers\Admin\PermissionConroller;
 use App\Http\Controllers\Admin\RoleConroller;
 use App\Http\Controllers\Admin\AdminOtpSendController;
 use App\Http\Controllers\Admin\CompanyController;
-use App\Http\Controllers\API\CompanyUserController;
+use App\Http\Controllers\Admin\CompanyUserController;
 use App\Http\Controllers\ProfileController;
 use App\Models\Menu;
 use Illuminate\Support\Facades\Cache;

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\API\ChartAccountController;
 use App\Http\Controllers\API\CompanyUserController;
+use App\Http\Controllers\Api\FixedAssetController;
 use App\Http\Controllers\Api\ProductController;
 use Illuminate\Support\Facades\Route;
 
@@ -51,6 +52,8 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::post('/products', [ProductController::class,'store']);
     Route::match(['put','patch'],'/products/{product}', [ProductController::class,'update']);
     Route::delete('/products/{product}', [ProductController::class,'destroy']);
+
+    Route::apiResource('assets', FixedAssetController::class);
 });
 Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
 Route::post('password/reset', [ResetPasswordController::class, 'reset']);

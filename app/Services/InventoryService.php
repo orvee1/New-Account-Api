@@ -8,6 +8,7 @@ use App\Models\ProductComboItem;
 use App\Models\ProductUnit;
 use App\Models\StockMovement;
 use App\Models\Warehouse;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class InventoryService
@@ -74,7 +75,7 @@ class InventoryService
                 // Warehouse resolve
                 $warehouse = isset($data['warehouse_id'])
                     ? Warehouse::findOrFail($data['warehouse_id'])
-                    : Warehouse::where('company_id', auth()->user()->company_id)->where('is_default', true)->first();
+                    : Warehouse::where('company_id', Auth::user()->company_id)->where('is_default', true)->first();
 
                 if (!$warehouse) throw new \RuntimeException('Default warehouse not found.');
 
@@ -82,7 +83,7 @@ class InventoryService
                 $batchId = null;
                 if (!empty($data['batch_no']) || !empty($data['manufactured_at']) || !empty($data['expired_at'])) {
                     $batch = ProductBatch::firstOrCreate([
-                        'company_id' => auth()->user()->company_id,
+                        'company_id' => Auth::user()->company_id,
                         'product_id' => $product->id,
                         'batch_no'   => $data['batch_no'] ?? null,
                     ], [
@@ -99,7 +100,7 @@ class InventoryService
 
                 $product->loadMissing('units');
                 StockMovement::create([
-                    'company_id' => auth()->user()->company_id,
+                    'company_id' => Auth::user()->company_id,
                     'product_id' => $product->id,
                     'warehouse_id' => $warehouse->id,
                     'product_batch_id' => $batchId,

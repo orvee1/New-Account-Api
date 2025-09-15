@@ -6,8 +6,8 @@ use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
-use App\Http\Controllers\API\ChartAccountController;
-
+use App\Http\Controllers\Api\ChartAccountController;
+use App\Http\Controllers\Api\ProductController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -33,13 +33,18 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     // Chart of Accounts
     Route::get('/chart-accounts/options', [ChartAccountController::class, 'options']);
     Route::get('/chart-accounts/tree',    [ChartAccountController::class, 'tree']);
-
     Route::apiResource('chart-accounts', ChartAccountController::class)
         ->only(['index','store','show','update','destroy']);
 
     // Soft delete lifecycle
     Route::post('/chart-accounts/{id}/restore', [ChartAccountController::class, 'restore']);
     Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
+
+    Route::get('/products', [ProductController::class,'index']);
+    Route::get('/products/{product}', [ProductController::class,'show']);
+    Route::post('/products', [ProductController::class,'store']);
+    Route::match(['put','patch'],'/products/{product}', [ProductController::class,'update']);
+    Route::delete('/products/{product}', [ProductController::class,'destroy']);
 });
 Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
 Route::post('password/reset', [ResetPasswordController::class, 'reset']);

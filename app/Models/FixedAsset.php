@@ -22,4 +22,22 @@ class FixedAsset extends Model
     // Optional relationships
     public function creator() { return $this->belongsTo(CompanyUser::class, 'created_by'); }
     public function updater() { return $this->belongsTo(CompanyUser::class, 'updated_by'); }
+
+    public function depreciations()
+    {
+        return $this->hasMany(AssetDepreciation::class, 'fixed_asset_id');
+    }
+
+    public function activeDepreciation()
+    {
+        return $this->hasOne(AssetDepreciation::class, 'fixed_asset_id')
+            ->where('is_active', true)
+            ->latestOfMany();
+    }
+
+    public function disposals()
+    {
+        return $this->hasMany(AssetDisposal::class, 'fixed_asset_id');
+    }
+
 }

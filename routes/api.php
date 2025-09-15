@@ -1,6 +1,9 @@
 <?php
 
 // use App\Http\Controllers\Api\Auth\EmailVerificationController;
+
+use App\Http\Controllers\Api\AssetDepreciationController;
+use App\Http\Controllers\Api\AssetDisposalController;
 use App\Http\Controllers\Api\Auth\ForgotPasswordController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
@@ -52,8 +55,12 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::post('/products', [ProductController::class,'store']);
     Route::match(['put','patch'],'/products/{product}', [ProductController::class,'update']);
     Route::delete('/products/{product}', [ProductController::class,'destroy']);
-
+    // Fixed Asset Route
     Route::apiResource('assets', FixedAssetController::class);
+    // Asset Depreciation Route
+    Route::apiResource('asset-depreciations', AssetDepreciationController::class);
+    // Asset Disposal Route
+    Route::apiResource('asset-disposals', AssetDisposalController::class);
 });
 Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
 Route::post('password/reset', [ResetPasswordController::class, 'reset']);

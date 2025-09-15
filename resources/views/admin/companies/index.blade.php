@@ -16,15 +16,15 @@
 
     <form method="GET" action="{{ route('companies.index') }}" class="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
       <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search name, email, phone..."
-        class="w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
-      <select name="status" class="w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+        class="w-full rounded-md border p-2 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500" />
+      <select name="status" class="w-full rounded-md border p-2 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
         @php $status = $filters['status'] ?? 'all'; @endphp
         <option value="all" {{ $status==='all' ? 'selected' : '' }}>All Status</option>
         <option value="active" {{ $status==='active' ? 'selected' : '' }}>Active</option>
         <option value="inactive" {{ $status==='inactive' ? 'selected' : '' }}>Inactive</option>
         <option value="suspended" {{ $status==='suspended' ? 'selected' : '' }}>Suspended</option>
       </select>
-      <select name="per_page" class="w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+      <select name="per_page" class="w-full rounded-md border p-2 border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
         @foreach ([10,20,50,100] as $pp)
         <option value="{{ $pp }}" {{ ($filters['per_page'] ?? 20)==$pp ? 'selected' : '' }}>{{ $pp }} / page</option>
         @endforeach

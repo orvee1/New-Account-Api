@@ -27,31 +27,31 @@ $isEdit = isset($company) && $company?->exists;
       <div>
         <label class="block text-sm font-medium text-gray-700">Email</label>
         <input type="email" name="email" value="{{ old('email', $company->email ?? '') }}"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+          class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700">Phone</label>
         <input type="text" name="phone" value="{{ old('phone', $company->phone ?? '') }}"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+          class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700">Industry Type</label>
         <input type="text" name="industry_type" value="{{ old('industry_type', $company->industry_type ?? '') }}"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+          class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700">Registration No</label>
         <input type="text" name="registration_no" value="{{ old('registration_no', $company->registration_no ?? '') }}"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+          class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
       </div>
 
       <div>
         <label class="block text-sm font-medium text-gray-700">Website</label>
         <input type="url" name="website" value="{{ old('website', $company->website ?? '') }}"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
+          class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500"
           placeholder="https://">
       </div>
     </div>
@@ -59,14 +59,14 @@ $isEdit = isset($company) && $company?->exists;
     <div>
       <label class="block text-sm font-medium text-gray-700">Address</label>
       <textarea name="address" rows="3"
-        class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">{{ old('address', $company->address ?? '') }}</textarea>
+        class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">{{ old('address', $company->address ?? '') }}</textarea>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
       <div>
         <label class="block text-sm font-medium text-gray-700">Logo</label>
         <input type="file" name="logo" accept="image/*"
-          class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+          class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
         <p class="mt-1 text-xs text-gray-500">JPG, PNG, WEBP, AVIF up to 2MB</p>
       </div>
 
@@ -90,7 +90,7 @@ $isEdit = isset($company) && $company?->exists;
       <label class="block text-sm font-medium text-gray-700">Status</label>
       @php $status = old('status', $company->status ?? 'active'); @endphp
       <select name="status"
-        class="mt-1 w-full rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+        class="mt-1 w-full border py-2 px-3 rounded-md border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
         <option value="active" {{ $status==='active' ? 'selected' : '' }}>Active</option>
         <option value="inactive" {{ $status==='inactive' ? 'selected' : '' }}>Inactive</option>
         <option value="suspended" {{ $status==='suspended' ? 'selected' : '' }}>Suspended</option>

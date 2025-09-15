@@ -8,12 +8,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Sanctum\HasApiTokens;
 
 class CompanyUser extends Authenticatable
 {
-    use HasFactory, SoftDeletes, Notifiable;
+    use HasFactory, SoftDeletes, Notifiable, HasApiTokens;
 
     protected $table = 'company_users';
 
@@ -36,7 +38,7 @@ class CompanyUser extends Authenticatable
     protected static function booted(): void
     {
         static::creating(function (self $model) {
-            $uid = auth()->id();
+            $uid = Auth::id();
             if ($uid) {
                 if (is_null($model->created_by)) $model->created_by = $uid;
                 if (is_null($model->updated_by)) $model->updated_by = $uid;
@@ -44,7 +46,7 @@ class CompanyUser extends Authenticatable
         });
 
         static::updating(function (self $model) {
-            $uid = auth()->id();
+            $uid = Auth::id();
             if ($uid) $model->updated_by = $uid;
         });
     }

@@ -19,7 +19,7 @@
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Company <span class="text-red-500">*</span></label>
       <select name="company_id" required
-              class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500">
+              class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500">
         <option value="">— Select company —</option>
         @foreach ($companies as $c)
           <option value="{{ $c->id }}"
@@ -33,7 +33,7 @@
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Full Name <span class="text-red-500">*</span></label>
       <input type="text" name="name" value="{{ old('name', $u->name ?? '') }}" required
-             class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500" />
+             class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500" />
       @error('name') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
     </div>
 
@@ -41,7 +41,7 @@
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
       <input type="email" name="email" value="{{ old('email', $u->email ?? '') }}"
-             class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500" />
+             class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500" />
       @error('email') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
       <p class="text-xs text-gray-400 mt-1">Unique within the selected company.</p>
     </div>
@@ -50,7 +50,7 @@
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Phone Number <span class="text-red-500">*</span></label>
       <input type="text" name="phone_number" value="{{ old('phone_number', $u->phone_number ?? '') }}" required
-             class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500" />
+             class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500" />
       @error('phone_number') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
       <p class="text-xs text-gray-400 mt-1">Unique within the selected company.</p>
     </div>
@@ -58,7 +58,7 @@
     {{-- Role --}}
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Role <span class="text-red-500">*</span></label>
-      <select name="role" required class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500">
+      <select name="role" required class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500">
         @foreach ($roles as $r)
           <option value="{{ $r }}" @selected(old('role', $u->role ?? '') == $r)>{{ ucfirst($r) }}</option>
         @endforeach
@@ -69,7 +69,7 @@
     {{-- Status --}}
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Status <span class="text-red-500">*</span></label>
-      <select name="status" required class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500">
+      <select name="status" required class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500">
         @foreach ($statuses as $s)
           <option value="{{ $s }}" @selected(old('status', $u->status ?? '') == $s)>{{ ucfirst($s) }}</option>
         @endforeach
@@ -96,7 +96,7 @@
           <img id="photoPreview" src="{{ $u?->photo_url }}" class="h-full w-full object-cover" alt="">
         </div>
         <input type="file" name="photo" accept="image/*"
-               class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500"
+               class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500"
                onchange="previewPhoto(event)">
       </div>
       @error('photo') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
@@ -115,20 +115,20 @@
         Password <span class="text-red-500">{{ $u ? '(leave blank to keep unchanged)' : '*' }}</span>
       </label>
       <input type="password" name="password"
-             class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500" @unless($u) required @endunless />
+             class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500" @unless($u) required @endunless />
       @error('password') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
     </div>
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Confirm Password {{ $u ? '' : '*' }}</label>
       <input type="password" name="password_confirmation" @unless($u) required @endunless
-             class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500" />
+             class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500" />
     </div>
 
     {{-- Permissions (JSON or array) --}}
     <div class="md:col-span-2">
       <label class="block text-sm font-medium text-gray-700 mb-1">Permissions (JSON)</label>
       <textarea name="permissions" rows="5"
-        class="w-full rounded-lg border-gray-300 focus:ring-2 focus:ring-emerald-500"
+        class="w-full rounded-lg border py-2 px-3 border-gray-300 focus:ring-2 focus:ring-emerald-500"
         placeholder='{"billing.create": true, "invoice.view": true}'>{{ old('permissions', is_array($u->permissions ?? null) ? json_encode($u->permissions, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES) : ($u->permissions ?? '')) }}</textarea>
       <div class="mt-2 flex items-center gap-2">
         <button type="button" onclick="formatJson('permissions')" class="px-3 py-1.5 text-xs rounded border border-gray-300 hover:bg-gray-50">

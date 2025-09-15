@@ -1,5 +1,7 @@
 <?php
 
+use App\Models\CompanyUser;
+
 return [
 
     /*
@@ -18,6 +20,10 @@ return [
         'passwords' => 'users',
     ],
 
+    'company_users' => [
+        'driver' => 'eloquent',
+        'model' => CompanyUser::class,
+    ],
     /*
     |--------------------------------------------------------------------------
     | Authentication Guards
@@ -42,7 +48,7 @@ return [
         ],
 
         'api' => [
-            'driver' => 'sanctum',
+            'driver' => 'token',
             'provider' => 'company_users',
         ],
     ],

@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use App\Http\Controllers\API\ChartAccountController;
 use App\Http\Controllers\API\CompanyUserController;
+use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\ProductController;
 use Illuminate\Support\Facades\Route;
 
@@ -51,6 +52,13 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::post('/products', [ProductController::class,'store']);
     Route::match(['put','patch'],'/products/{product}', [ProductController::class,'update']);
     Route::delete('/products/{product}', [ProductController::class,'destroy']);
+
+    Route::get('/customers', [CustomerController::class, 'index']);
+    Route::get('/customers/{customer}', [CustomerController::class, 'show']);
+    Route::post('/customers', [CustomerController::class, 'store']);
+    Route::match(['put','patch'], '/customers/{customer}', [CustomerController::class, 'update']);
+    Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
+    Route::post('/customers/{id}/restore', [CustomerController::class, 'restore']);
 });
 Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
 Route::post('password/reset', [ResetPasswordController::class, 'reset']);

@@ -53,7 +53,7 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::post('/chart-accounts/{id}/restore', [ChartAccountController::class, 'restore']);
     Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
 
-    Route::get('/products', [ProductController::class,'index']);
+    Route::apiResource('products', [ProductController::class,'index']);
     Route::get('/products/{product}', [ProductController::class,'show']);
     Route::post('/products', [ProductController::class,'store']);
     Route::match(['put','patch'],'/products/{product}', [ProductController::class,'update']);
@@ -68,13 +68,10 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
 
     // vendors
     Route::apiResource('vendors', VendorController::class);
-    // customer
-    Route::get('/customers', [CustomerController::class, 'index']);
-    Route::get('/customers/{customer}', [CustomerController::class, 'show']);
-    Route::post('/customers', [CustomerController::class, 'store']);
-    Route::match(['put','patch'], '/customers/{customer}', [CustomerController::class, 'update']);
-    Route::delete('/customers/{customer}', [CustomerController::class, 'destroy']);
-    Route::post('/customers/{id}/restore', [CustomerController::class, 'restore']);
+    // RESTful CRUD (index, store, show, update, destroy)
+    Route::apiResource('customers', CustomerController::class);
+    Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])
+        ->name('customers.restore');
 
 
 });

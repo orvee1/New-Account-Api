@@ -52,13 +52,8 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     // Soft delete lifecycle
     Route::post('/chart-accounts/{id}/restore', [ChartAccountController::class, 'restore']);
     Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
-
-    Route::apiResource('products', [ProductController::class,'index']);
-    Route::get('/products/{product}', [ProductController::class,'show']);
-    Route::post('/products', [ProductController::class,'store']);
-    Route::match(['put','patch'],'/products/{product}', [ProductController::class,'update']);
-    Route::delete('/products/{product}', [ProductController::class,'destroy']);
-
+    //porducts 
+    Route::apiResource('products', ProductController::class);
     // Fixed Asset Route
     Route::apiResource('assets', FixedAssetController::class);
     // Asset Depreciation Route

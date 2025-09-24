@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\AdminOtpSendController;
 use App\Http\Controllers\Admin\CompanyController;
 use App\Http\Controllers\Admin\CompanyUserController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\WhatsAppController;
 use App\Models\Menu;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Route;
@@ -71,6 +72,7 @@ Route::group(['middleware' => ['auth'], 'prefix' => 'admin'], function () {
         ->name('admin-device.requests.update');
     Route::put('admin-device-log/{admin_device}/cancel-requests/{admin_device_request}', [AdminDeviceLogController::class, 'cancelDeviceRequest'])
         ->name('admin-device.requests.cancel');
+    Route::get('test-whatsapp-message', [WhatsAppController::class, 'sendMessage']);
 
 });
 require __DIR__ . '/auth.php';

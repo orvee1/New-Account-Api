@@ -15,6 +15,8 @@ use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\FixedAssetController;
 
 use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\PurchaseBillController;
+use App\Http\Controllers\Api\PurchaseReturnController;
 use App\Http\Controllers\Api\VendorController;
 use Illuminate\Support\Facades\Route;
 
@@ -54,12 +56,17 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
     //porducts 
     Route::apiResource('products', ProductController::class);
+
     // Fixed Asset Route
     Route::apiResource('assets', FixedAssetController::class);
     // Asset Depreciation Route
     Route::apiResource('asset-depreciations', AssetDepreciationController::class);
     // Asset Disposal Route
     Route::apiResource('asset-disposals', AssetDisposalController::class);
+
+    // Purchase Routes
+    Route::apiResource('purchase-bills', PurchaseBillController::class);
+    Route::apiResource('purchase-returns', PurchaseReturnController::class);
 
     // vendors
     Route::apiResource('vendors', VendorController::class);

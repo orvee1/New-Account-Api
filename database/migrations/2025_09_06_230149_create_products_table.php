@@ -15,9 +15,9 @@ return new class extends Migration {
             $t->text('description')->nullable();
 
             // For non-combo (optional batch meta on product-level; real batch rows live in product_batches)
-            $t->string('default_batch_no')->nullable();
-            $t->date('default_manufactured_at')->nullable();
-            $t->date('default_expired_at')->nullable();
+            $t->string('batch_no')->nullable();
+            $t->date('manufactured_at')->nullable();
+            $t->date('expired_at')->nullable();
 
             // Extra fields (simple; for flexible K/V see product_attributes)
             $t->string('extra_field1_name')->nullable();

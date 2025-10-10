@@ -31,9 +31,9 @@ class ProductService
                 'extra_field1_value' => $data['extra_field1_value'] ?? null,
                 'extra_field2_name' => $data['extra_field2_name'] ?? null,
                 'extra_field2_value' => $data['extra_field2_value'] ?? null,
-                'default_batch_no' => $data['batch_no'] ?? null,
-                'default_manufactured_at' => $data['manufactured_at'] ?? null,
-                'default_expired_at' => $data['expired_at'] ?? null,
+                'batch_no' => $data['batch_no'] ?? null,
+                'manufactured_at' => $data['manufactured_at'] ?? null,
+                'expired_at' => $data['expired_at'] ?? null,
                 'created_by' => $userId,
                 'updated_by' => $userId,
             ]);
@@ -129,9 +129,9 @@ class ProductService
                 'extra_field1_value' => $data['extra_field1_value'] ?? null,
                 'extra_field2_name' => $data['extra_field2_name'] ?? null,
                 'extra_field2_value' => $data['extra_field2_value'] ?? null,
-                'default_batch_no' => $data['batch_no'] ?? null,
-                'default_manufactured_at' => $data['manufactured_at'] ?? null,
-                'default_expired_at' => $data['expired_at'] ?? null,
+                'batch_no' => $data['batch_no'] ?? null,
+                'manufactured_at' => $data['manufactured_at'] ?? null,
+                'expired_at' => $data['expired_at'] ?? null,
                 'updated_by' => $userId,
             ])->save();
 

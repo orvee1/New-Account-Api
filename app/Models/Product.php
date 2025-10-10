@@ -12,7 +12,7 @@ class Product extends Model {
 
     protected $fillable = [
         'product_type','name','code','description',
-        'default_batch_no','default_manufactured_at','default_expired_at',
+        'batch_no','manufactured_at','expired_at',
         'extra_field1_name','extra_field1_value','extra_field2_name','extra_field2_value',
         'category','costing_price','sales_price',
         'has_warranty','warranty_days','base_unit_name',
@@ -21,8 +21,8 @@ class Product extends Model {
 
     protected $casts = [
         'has_warranty' => 'boolean',
-        'default_manufactured_at' => 'date',
-        'default_expired_at' => 'date',
+        'manufactured_at' => 'date',
+        'expired_at' => 'date',
     ];
 
     public function units() { return $this->hasMany(ProductUnit::class); }

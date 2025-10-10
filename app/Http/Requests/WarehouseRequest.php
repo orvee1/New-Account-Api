@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class WarehouseRequest extends FormRequest
 {
@@ -19,11 +20,14 @@ class WarehouseRequest extends FormRequest
 
         return [
             'name' => [
-                'required', 'string', 'max:191',
-                // unique per company
-                "unique:warehouses,name,{$id},id,company_id,{$companyId}",
+                'required',
+                'string',
+                'max:191',
+                Rule::unique('warehouses', 'name')
+                    ->where('company_id', $companyId)
+                    ->ignore($id)
             ],
-            'is_default' => ['sometimes','boolean'],
+            'is_default' => ['sometimes', 'boolean'],
         ];
     }
 

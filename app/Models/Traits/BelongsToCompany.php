@@ -5,7 +5,12 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 trait BelongsToCompany {
-   protected static function bootBelongsToCompany(): void
+    public function scopeForCompany(Builder $query, int $companyId): Builder
+    {
+        return $query->where('company_id', $companyId);
+    }
+
+    protected static function bootBelongsToCompany(): void
     {
         // Set company_id on create (only when an authenticated user exists)
         static::creating(function (Model $model) {

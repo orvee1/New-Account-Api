@@ -13,4 +13,5 @@ class StockMovement extends Model {
         'type','quantity','unit_name','unit_factor_to_base','created_by'
     ];
     protected $casts = ['quantity'=>'decimal:6','unit_factor_to_base'=>'decimal:6'];
+
 }

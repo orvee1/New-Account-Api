@@ -110,8 +110,11 @@ class WarehouseController extends Controller
     {
         $this->authorizeCompany($request, $warehouse);
 
-        DB::transaction(function () use ($warehouse) {
-            Warehouse::forCompany($warehouse->company_id)->where('is_default', true)->update(['is_default' => false]);
+        DB::transaction(function () use ($request, $warehouse) {
+            Warehouse::forCompany($warehouse->company_id)
+                ->where('is_default', true)
+                ->where('id', '!=', $warehouse->id)
+                ->update(['is_default' => false]);
             $warehouse->update(['is_default' => true]);
         });
 

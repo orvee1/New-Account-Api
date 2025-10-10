@@ -8,6 +8,6 @@ use Illuminate\Database\Eloquent\Model;
 class Warehouse extends Model {
     use BelongsToCompany;
 
-    protected $fillable = ['name','is_default'];
+    protected $fillable = ['company_id','name','is_default'];
     protected $casts = ['is_default'=>'boolean'];
 }

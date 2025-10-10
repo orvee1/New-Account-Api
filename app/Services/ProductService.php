@@ -1,7 +1,6 @@
-
 <?php
-namespace App\Services;
 
+namespace App\Services;
 use App\Models\Product;
 use App\Models\ProductBatch;
 use App\Models\ProductComboItem;
@@ -11,7 +10,7 @@ use App\Models\Warehouse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
-class InventoryService
+class ProductService
 {
     public function createProductWithRelations(array $data, int $userId): Product
     {

@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ProductRequest;
 use App\Models\Product;
-use App\Services\InventoryService;
+use App\Services\ProductService;
 use Illuminate\Http\Request;
 
 class ProductController extends Controller
 {
-    public function __construct(private InventoryService $inventory) {}
+    public function __construct(private ProductService $inventory) {}
 
     // GET /api/products?q=&type=&category=&per_page=...
     public function index(Request $req) {

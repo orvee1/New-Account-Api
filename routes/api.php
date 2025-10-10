@@ -1,23 +1,11 @@
 <?php
 
-// use App\Http\Controllers\Api\Auth\EmailVerificationController;
-
-use App\Http\Controllers\Api\AssetDepreciationController;
-use App\Http\Controllers\Api\AssetDisposalController;
+namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Auth\ForgotPasswordController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
-use App\Http\Controllers\API\ChartAccountController;
-use App\Http\Controllers\API\CompanyUserController;
-use App\Http\Controllers\Api\CustomerController;
-use App\Http\Controllers\Api\FixedAssetController;
-
-use App\Http\Controllers\Api\ProductController;
-use App\Http\Controllers\Api\PurchaseBillController;
-use App\Http\Controllers\Api\PurchaseReturnController;
-use App\Http\Controllers\Api\VendorController;
 use Illuminate\Support\Facades\Route;
 
 
@@ -54,7 +42,7 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     // Soft delete lifecycle
     Route::post('/chart-accounts/{id}/restore', [ChartAccountController::class, 'restore']);
     Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
-    //porducts 
+    //porducts
     Route::apiResource('products', ProductController::class);
 
     // Fixed Asset Route
@@ -70,6 +58,8 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
 
     // vendors
     Route::apiResource('vendors', VendorController::class);
+    Route::apiResource('warehouses', WarehouseController::class);
+    Route::post('/warehouses/{warehouse}/make-default', [WarehouseController::class, 'makeDefault']);
     // RESTful CRUD (index, store, show, update, destroy)
     Route::apiResource('customers', CustomerController::class);
     Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])

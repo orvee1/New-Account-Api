@@ -44,7 +44,8 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
     //porducts
     Route::apiResource('products', ProductController::class);
-
+    Route::apiResource('product-categories', CategoryController::class);
+    Route::apiResource('brands', BrandController::class);
     // Fixed Asset Route
     Route::apiResource('assets', FixedAssetController::class);
     // Asset Depreciation Route

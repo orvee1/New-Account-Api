@@ -1,169 +1,143 @@
 <?php
 
 namespace App\Services;
+
 use App\Models\Product;
-use App\Models\ProductBatch;
-use App\Models\ProductComboItem;
-use App\Models\ProductUnit;
-use App\Models\StockMovement;
-use App\Models\Warehouse;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Builder;
 
 class ProductService
 {
-    public function createProductWithRelations(array $data, int $userId): Product
+    public function create(array $data): Product
     {
-        return DB::transaction(function () use ($data, $userId) {
-            // 1) Product
-            $product = new Product();
-            $product->fill([
-                'product_type' => $data['product_type'],
-                'name' => $data['name'],
-                'code' => $data['code'] ?? null,
-                'description' => $data['description'] ?? null,
-                'category' => $data['category'] ?? null,
-                'costing_price' => $data['product_type']==='Combo' ? 0 : ($data['costing_price'] ?? 0),
-                'sales_price' => $data['product_type']==='Combo' ? 0 : ($data['sales_price'] ?? 0),
-                'has_warranty' => $data['has_warranty'] ?? false,
-                'warranty_days' => $data['has_warranty'] ? ($data['warranty_days'] ?? 0) : 0,
-                'extra_field1_name' => $data['extra_field1_name'] ?? null,
-                'extra_field1_value' => $data['extra_field1_value'] ?? null,
-                'extra_field2_name' => $data['extra_field2_name'] ?? null,
-                'extra_field2_value' => $data['extra_field2_value'] ?? null,
-                'batch_no' => $data['batch_no'] ?? null,
-                'manufactured_at' => $data['manufactured_at'] ?? null,
-                'expired_at' => $data['expired_at'] ?? null,
-                'created_by' => $userId,
-                'updated_by' => $userId,
-            ]);
-            $product->save();
+        $product = Product::create([
+            'company_id'    => auth()->user()->company_id,
+            'product_type'  => $data['product_type'],
+            'name'          => $data['name'],
+            'sku'           => $data['sku'] ?? null,
+            'barcode'       => $data['barcode'] ?? null,
+            'category_id'   => $data['category_id'] ?? null,
+            'brand_id'      => $data['brand_id'] ?? null,
+            'unit'          => $data['unit'] ?? null,
+            'costing_price' => $data['costing_price'] ?? null,
+            'sales_price'   => $data['sales_price'] ?? null,
+            'tax_percent'   => $data['tax_percent'] ?? null,
+            'has_warranty'  => $data['has_warranty'] ?? false,
+            'warranty_days' => $data['warranty_days'] ?? null,
+            'description'   => $data['description'] ?? null,
+            'status'        => $data['status'] ?? 'active',
+            'meta'          => $data['meta'] ?? null,
+        ]);
 
-            // 2) Units (Stock/Non-stock)
-            if (in_array($product->product_type, ['Stock','Non-stock'])) {
-                $bases = 0; $baseName = null;
-                foreach ($data['units'] ?? [] as $u) {
-                    $unit = new ProductUnit([
-                        'name' => $u['name'],
-                        'factor' => $u['factor'],
-                        'is_base' => (bool)$u['is_base'],
-                    ]);
-                    $product->units()->save($unit);
-                    if ($unit->is_base) { $bases++; $baseName = $unit->name; }
-                }
-                if ($bases !== 1) throw new \RuntimeException('Exactly one base unit is required.');
-                $product->base_unit_name = $baseName;
-                $product->save();
-            } else {
-                $product->base_unit_name = 'N/A';
-                $product->save();
-            }
-
-            // 3) Combo BOM
-            if ($product->product_type === 'Combo') {
-                foreach ($data['combo_items'] ?? [] as $ci) {
-                    $product->comboItems()->save(new ProductComboItem([
-                        'item_product_id' => $ci['id'],
-                        'quantity' => $ci['quantity'],
-                    ]));
-                }
-            }
-
-            // 4) Opening Stock (only Stock, optional)
-            if ($product->product_type === 'Stock' && isset($data['opening_quantity']) && $data['opening_quantity'] > 0) {
-                // Warehouse resolve
-                $warehouse = isset($data['warehouse_id'])
-                    ? Warehouse::findOrFail($data['warehouse_id'])
-                    : Warehouse::where('company_id', Auth::user()->company_id)->where('is_default', true)->first();
-
-                if (!$warehouse) throw new \RuntimeException('Default warehouse not found.');
-
-                // Optional: create/find batch
-                $batchId = null;
-                if (!empty($data['batch_no']) || !empty($data['manufactured_at']) || !empty($data['expired_at'])) {
-                    $batch = ProductBatch::firstOrCreate([
-                        'company_id' => Auth::user()->company_id,
-                        'product_id' => $product->id,
-                        'batch_no'   => $data['batch_no'] ?? null,
-                    ], [
-                        'manufactured_at' => $data['manufactured_at'] ?? null,
-                        'expired_at'      => $data['expired_at'] ?? null,
-                    ]);
-                    $batchId = $batch->id;
-                }
-
-                // Movement is recorded in BASE UNIT
-                $product->refresh(); // ensure base_unit_name set
-                $baseUnit = $product->units()->where('is_base', true)->first();
-                $factor = $baseUnit?->factor ?? 1;
-
-                $product->loadMissing('units');
-                StockMovement::create([
-                    'company_id' => Auth::user()->company_id,
-                    'product_id' => $product->id,
-                    'warehouse_id' => $warehouse->id,
-                    'product_batch_id' => $batchId,
-                    'type' => 'OPENING',
-                    'quantity' => (float)$data['opening_quantity'], // already base unit by UI
-                    'unit_name' => $baseUnit?->name,
-                    'unit_factor_to_base' => $factor,
-                    'created_by' => $userId,
+        // units (replace set)
+        if (!empty($data['units'])) {
+            $product->units()->delete();
+            foreach ($data['units'] as $u) {
+                $product->units()->create([
+                    'name'    => $u['name'],
+                    'factor'  => $u['factor'],
+                    'is_base' => $u['is_base'],
                 ]);
             }
+        }
 
-            return $product->fresh(['units','comboItems','batches']);
-        });
+        // opening stock (only logical record – optional: move to stock module)
+        if (($data['product_type'] ?? null) === 'Stock' && !empty($data['opening_quantity'])) {
+            // এখানে তুমি তোমার OpeningStock মডেল/টেবিল থাকলে create করবে।
+            // উদাহরণ:
+            // $product->openingStocks()->create([...]);
+        }
+
+        // combo items
+        if (($data['product_type'] ?? null) === 'Combo' && !empty($data['combo_items'])) {
+            $product->comboItems()->delete();
+            foreach ($data['combo_items'] as $ci) {
+                $product->comboItems()->create([
+                    'item_product_id' => $ci['product_id'],
+                    'quantity'        => $ci['quantity'],
+                ]);
+            }
+        }
+
+        return $product;
     }
 
-    public function updateProductWithRelations(Product $product, array $data, int $userId): Product
+    public function update(int $id, array $data): Product
     {
-        return DB::transaction(function () use ($product, $data, $userId) {
-            $product->fill([
-                'name' => $data['name'],
-                'description' => $data['description'] ?? null,
-                'category' => $data['category'] ?? null,
-                'sales_price' => $product->product_type==='Combo' ? 0 : ($data['sales_price'] ?? $product->sales_price),
-                'has_warranty' => $data['has_warranty'] ?? false,
-                'warranty_days' => ($data['has_warranty'] ?? false) ? ($data['warranty_days'] ?? 0) : 0,
-                'extra_field1_name' => $data['extra_field1_name'] ?? null,
-                'extra_field1_value' => $data['extra_field1_value'] ?? null,
-                'extra_field2_name' => $data['extra_field2_name'] ?? null,
-                'extra_field2_value' => $data['extra_field2_value'] ?? null,
-                'batch_no' => $data['batch_no'] ?? null,
-                'manufactured_at' => $data['manufactured_at'] ?? null,
-                'expired_at' => $data['expired_at'] ?? null,
-                'updated_by' => $userId,
-            ])->save();
+        $product = Product::findOrFail($id);
 
-            // Replace Units if provided (Stock/Non-stock only; costing price & opening qty are immutable by your UI)
-            if (in_array($product->product_type, ['Stock','Non-stock']) && isset($data['units'])) {
-                $product->units()->delete();
-                $bases = 0; $baseName = null;
-                foreach ($data['units'] as $u) {
-                    $unit = new ProductUnit([
-                        'name' => $u['name'],
-                        'factor' => $u['factor'],
-                        'is_base' => (bool)$u['is_base'],
-                    ]);
-                    $product->units()->save($unit);
-                    if ($unit->is_base) { $bases++; $baseName = $unit->name; }
-                }
-                if ($bases !== 1) throw new \RuntimeException('Exactly one base unit is required.');
-                $product->forceFill(['base_unit_name' => $baseName])->save();
+        $product->fill([
+            'product_type'  => $data['product_type']  ?? $product->product_type,
+            'name'          => $data['name']          ?? $product->name,
+            'sku'           => $data['sku']           ?? $product->sku,
+            'barcode'       => $data['barcode']       ?? $product->barcode,
+            'category_id'   => array_key_exists('category_id', $data) ? $data['category_id'] : $product->category_id,
+            'brand_id'      => array_key_exists('brand_id', $data) ? $data['brand_id'] : $product->brand_id,
+            'unit'          => $data['unit']          ?? $product->unit,
+            'costing_price' => $data['costing_price'] ?? $product->costing_price,
+            'sales_price'   => $data['sales_price']   ?? $product->sales_price,
+            'tax_percent'   => $data['tax_percent']   ?? $product->tax_percent,
+            'has_warranty'  => $data['has_warranty']  ?? $product->has_warranty,
+            'warranty_days' => $data['warranty_days'] ?? $product->warranty_days,
+            'description'   => $data['description']   ?? $product->description,
+            'status'        => $data['status']        ?? $product->status,
+            'meta'          => $data['meta']          ?? $product->meta,
+        ])->save();
+
+        if (array_key_exists('units', $data)) {
+            $product->units()->delete();
+            foreach (($data['units'] ?? []) as $u) {
+                $product->units()->create([
+                    'name'    => $u['name'],
+                    'factor'  => $u['factor'],
+                    'is_base' => $u['is_base'],
+                ]);
             }
+        }
 
-            // Replace combo BOM if provided
-            if ($product->product_type === 'Combo' && isset($data['combo_items'])) {
-                $product->comboItems()->delete();
-                foreach ($data['combo_items'] as $ci) {
-                    $product->comboItems()->create([
-                        'item_product_id' => $ci['id'],
-                        'quantity' => $ci['quantity'],
-                    ]);
-                }
+        if (array_key_exists('combo_items', $data)) {
+            $product->comboItems()->delete();
+            foreach (($data['combo_items'] ?? []) as $ci) {
+                $product->comboItems()->create([
+                    'item_product_id' => $ci['product_id'],
+                    'quantity'        => $ci['quantity'],
+                ]);
             }
+        }
 
-            return $product->fresh(['units','comboItems','batches']);
+        return $product;
+    }
+
+    public function paginate(array $filters)
+    {
+        /** @var Builder $q */
+        $q = Product::query()->where('company_id', auth()->user()->company_id);
+
+        $q->when(!empty($filters['q']), function (Builder $qr) use ($filters) {
+            $term = $filters['q'];
+            $qr->where(function ($s) use ($term) {
+                $s->where('name', 'like', "%{$term}%")
+                  ->orWhere('sku', 'like', "%{$term}%")
+                  ->orWhere('barcode', 'like', "%{$term}%");
+            });
         });
+
+        $q->when(!empty($filters['product_type']), fn($qr)=> $qr->where('product_type', $filters['product_type']));
+        $q->when(!empty($filters['category_id']), fn($qr)=> $qr->where('category_id', $filters['category_id']));
+        $q->when(!empty($filters['brand_id']), fn($qr)=> $qr->where('brand_id', $filters['brand_id']));
+        $q->when(!empty($filters['sku']), fn($qr)=> $qr->where('sku', $filters['sku']));
+        $q->when(!empty($filters['barcode']), fn($qr)=> $qr->where('barcode', $filters['barcode']));
+        $q->when(!empty($filters['status']), fn($qr)=> $qr->where('status', $filters['status']));
+        $q->when(!empty($filters['min_price']), fn($qr)=> $qr->where('sales_price', '>=', $filters['min_price']));
+        $q->when(!empty($filters['max_price']), fn($qr)=> $qr->where('sales_price', '<=', $filters['max_price']));
+
+        $sort = $filters['sort'] ?? '-created_at';
+        if (str_starts_with($sort, '-')) {
+            $q->orderBy(ltrim($sort, '-'), 'desc');
+        } else {
+            $q->orderBy($sort, 'asc');
+        }
+
+        $per = (int)($filters['per_page'] ?? 20);
+        return $q->paginate($per)->withQueryString();
     }
 }

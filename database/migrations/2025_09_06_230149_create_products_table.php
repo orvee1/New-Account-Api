@@ -5,48 +5,51 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
-    public function up(): void {
-        Schema::create('products', function (Blueprint $t) {
-            $t->id();
-            $t->unsignedBigInteger('company_id')->index();
-            $t->string('product_type'); // Stock | Non-stock | Service | Combo
-            $t->string('name');
-            $t->string('code')->nullable()->index(); // SKU
-            $t->text('description')->nullable();
+    public function up(): void
+    {
+        Schema::create('products', function (Blueprint $table) {
+            $table->id();
 
-            // For non-combo (optional batch meta on product-level; real batch rows live in product_batches)
-            $t->string('batch_no')->nullable();
-            $t->date('manufactured_at')->nullable();
-            $t->date('expired_at')->nullable();
+            $table->unsignedBigInteger('company_id')->index();
 
-            // Extra fields (simple; for flexible K/V see product_attributes)
-            $t->string('extra_field1_name')->nullable();
-            $t->string('extra_field1_value')->nullable();
-            $t->string('extra_field2_name')->nullable();
-            $t->string('extra_field2_value')->nullable();
+            // Types: Stock | Non-stock | Service | Combo
+            $table->enum('product_type', ['Stock','Non-stock','Service','Combo'])->index();
 
-            $t->string('category')->nullable();
+            $table->string('name', 255);
+            $table->string('sku', 100)->nullable();
+            $table->string('barcode', 255)->nullable();
 
-            // Prices (base-unit)
-            $t->decimal('costing_price', 16, 4)->default(0);
-            $t->decimal('sales_price', 16, 4)->default(0);
+            $table->unsignedBigInteger('category_id')->nullable()->index();
+            $table->unsignedBigInteger('brand_id')->nullable()->index();
 
-            // Warranty
-            $t->boolean('has_warranty')->default(false);
-            $t->unsignedInteger('warranty_days')->default(0);
+            $table->string('unit', 50)->nullable();
 
-            // Base unit cache (for quick reads)
-            $t->string('base_unit_name')->nullable();
+            $table->decimal('costing_price', 18, 4)->nullable();
+            $table->decimal('sales_price', 18, 4)->nullable();
+            $table->decimal('tax_percent', 6, 2)->nullable();
 
-            $t->unsignedBigInteger('created_by');
-            $t->unsignedBigInteger('updated_by')->nullable();
+            $table->boolean('has_warranty')->default(false);
+            $table->unsignedInteger('warranty_days')->nullable();
 
-            $t->softDeletes();
-            $t->timestamps();
+            $table->text('description')->nullable();
+            $table->enum('status', ['active','inactive'])->default('active')->index();
 
-            $t->unique(['company_id', 'code']);
+            $table->json('meta')->nullable();
+
+            $table->timestamps();
+
+            // Scoped uniques
+            $table->unique(['company_id', 'sku']);
+            $table->unique(['company_id', 'barcode']);
+
+            // FK hints (optional, keep nullable safe)
+            // $table->foreign('category_id')->references('id')->on('categories')->nullOnDelete();
+            // $table->foreign('brand_id')->references('id')->on('brands')->nullOnDelete();
         });
     }
-    public function down(): void { Schema::dropIfExists('products'); }
-};
 
+    public function down(): void
+    {
+        Schema::dropIfExists('products');
+    }
+};

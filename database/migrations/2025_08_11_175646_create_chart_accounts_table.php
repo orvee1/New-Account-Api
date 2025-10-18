@@ -16,7 +16,7 @@ return new class extends Migration
             $table->bigInteger('company_id');
             $table->string('account_no', 20);
             $table->string('account_name');
-            $table->integer('account_type');
+            $table->string('account_type');
             $table->string('detail_type')->nullable();
             $table->bigInteger('parent_account_id')->nullable()->default(0);
             $table->boolean('is_active')->default(true);

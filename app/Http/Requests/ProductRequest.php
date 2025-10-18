@@ -41,6 +41,7 @@ class ProductRequest extends FormRequest
             // FKs
             'category_id'    => ['nullable','integer','exists:categories,id'],
             'brand_id'       => ['nullable','integer','exists:brands,id'],
+            'warehouse_id'   => ['nullable','integer','exists:warehouses,id'],
 
             // Pricing
             'costing_price'  => ['nullable','numeric','min:0'],
@@ -59,12 +60,10 @@ class ProductRequest extends FormRequest
 
             // Opening stock (allowed only for Stock)
             'opening_quantity'       => ['nullable','numeric','min:0'],
-            'warehouse_id'           => ['nullable','integer','exists:warehouses,id'],
-            'batch_no'               => ['nullable','string','max:100'],
             'manufactured_at'        => ['nullable','date'],
             'expired_at'             => ['nullable','date','after_or_equal:manufactured_at'],
 
-            // Combo items (required for Combo)
+            // Combo items (requiredfor Combo)
             'combo_items'                => ['array'],
             'combo_items.*.product_id'   => ['required_with:combo_items','integer','exists:products,id'],
             'combo_items.*.quantity'     => ['required_with:combo_items','numeric','min:0.000001'],
@@ -90,7 +89,7 @@ class ProductRequest extends FormRequest
 
             // Type-based constraints
             if ($t === 'Stock') {
-                if ($this->filled('opening_quantity') && !$this->filled('warehouse_id')) {
+                if ($this->filled('opening_quantity') > 0 && !$this->filled('warehouse_id')) {
                     $v->errors()->add('warehouse_id', 'warehouse_id is required when opening_quantity is provided for Stock products.');
                 }
             } elseif (in_array($t, ['Non-stock','Service'], true)) {

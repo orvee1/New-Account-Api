@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreChartAccountRequest;
+use App\Http\Requests\UpdateChartAccountRequest;
 use App\Models\AccountType;
 use App\Models\ChartAccount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\Rule;
 
 class ChartAccountController extends Controller
@@ -15,7 +18,6 @@ class ChartAccountController extends Controller
     public function index(Request $request)
     {
         $request->validate([
-            'company_id' => ['required','exists:companies,id'],
             'type'       => ['nullable'],
             'detail_type'=> ['nullable','string','max:255'],
             'per_page'   => ['nullable','integer','min:1','max:100'],
@@ -52,116 +54,64 @@ class ChartAccountController extends Controller
 
     public function options()
     {
+        // ইচ্ছা করলে ক্যাশ রাখতে পারো (৫ মিনিট)
+        $types = Cache::remember('account_types.grouped', 300, function () {
+            $parents = AccountType::parents()
+                ->orderBy('name')
+                ->with(['children' => function ($q) {
+                    $q->orderBy('name');
+                }])
+                ->get(['id','name','parent_id']);
+
+            $out = [];
+            foreach ($parents as $p) {
+                // প্রত্যেক parent-এর অধীনে শুধুমাত্র নামের অ্যারে
+                $out[$p->name] = $p->children->pluck('name')->values()->all();
+            }
+            return $out;
+        });
+
+        return response()->json( $types );
+    }
+
+    public function store(StoreChartAccountRequest $request)
+    {
+        $data = $request->validated();
+
+        $data['company_id'] = Auth::user()->company_id;
+
+        // created_by / defaults
+        $data['created_by'] = Auth::id();
+        $data['is_active'] = (bool)($data['is_active'] ?? true);
+        $data['parent_account_id'] = $data['parent_account_id'] ?? 0;
+
+        $account = ChartAccount::create($data);
+
         return response()->json([
-            'types' => AccountType::query()
-                ->where('parent_id', 0)
-                ->get(['id', 'name', 'parent_id'])
-        ]);
+            'message' => 'Account created successfully.',
+            'data' => $account,
+        ], 201);
     }
 
-    public function tree(Request $request)
-    {
-        $request->validate(['company_id' => ['required','exists:companies,id']]);
-
-        $user = Auth::user();
-
-        $rows = ChartAccount::where('company_id', $user->company_id ?? 0)
-            ->orderBy('account_no')
-            ->get(['id','company_id','account_no','name','type','detail_type','parent_id','is_active','balance']);
-
-        $byId = [];
-        foreach ($rows as $r) { $r->children = []; $byId[$r->id] = $r; }
-        $roots = [];
-        foreach ($byId as $id => $node) {
-            if ($node->parent_id && isset($byId[$node->parent_id])) {
-                $byId[$node->parent_id]->children[] = $node;
-            } else {
-                $roots[] = $node;
-            }
-        }
-        return response()->json($roots);
-    }
-
-    public function store(Request $request)
-    {
-        $user = Auth::user();
-        $request->validate([
-            'account_no'  => ['required','max:20', Rule::unique('chart_accounts')->where(
-                fn($q) => $q->where('company_id', $user->company_id)->whereNull('deleted_at')
-            )],
-            'name'        => ['required','max:255'],
-            'type'        => ['required'],
-            'detail_type' => ['nullable','max:255'],
-            'parent_id'   => ['nullable','integer','exists:chart_accounts,id'],
-            'is_active'   => ['boolean'],
-            'balance'     => ['nullable','numeric'],
-        ]);
-
-        if ($request->filled('parent_id')) {
-            $parentOk = ChartAccount::where('id',$request->parent_id)
-                ->where('company_id',$user->company_id)->exists();
-            if (!$parentOk) {
-                return response()->json(['message' => 'Parent must belong to the same company'], 422);
-            }
-        }
-
-        $actor = optional($request->user())->id;
-
-        $acc = ChartAccount::create([
-            'company_id'  => $user->company_id,
-            'account_no'  => $request->account_no,
-            'name'        => $request->name,
-            'type'        => $request->type,
-            'detail_type' => $request->detail_type,
-            'parent_id'   => $request->parent_id,
-            'is_active'   => (bool)$request->boolean('is_active', true),
-            'balance'     => $request->input('balance', 0),
-            'created_by'  => $actor,
-            'updated_by'  => $actor,
-        ]);
-
-        return response()->json($acc, 201);
-    }
 
     public function show(ChartAccount $chartAccount)
     {
         return response()->json($chartAccount);
     }
 
-    public function update(Request $request, ChartAccount $chartAccount)
+    public function update(UpdateChartAccountRequest $request, ChartAccount $chart_account)
     {
-        $request->validate([
-            'name'        => ['sometimes','required','max:255'],
-            'type'        => ['sometimes'],
-            'detail_type' => ['sometimes','nullable','max:255'],
-            'parent_id'   => ['sometimes','nullable','integer','exists:chart_accounts,id'],
-            'is_active'   => ['sometimes','boolean'],
+        $data = $request->validated();
+        $data['company_id'] = Auth::user()->company_id;
+        $data['updated_by'] = Auth::id();
+        $data['parent_account_id'] = $data['parent_account_id'] ?? 0;
+
+        $chart_account->update($data);
+
+        return response()->json([
+            'message' => 'Account updated successfully.',
+            'data' => $chart_account->fresh(),
         ]);
-
-        if ($request->filled('parent_id')) {
-            if ((int)$request->parent_id === (int)$chartAccount->id) {
-                return response()->json(['message' => 'parent_id cannot be self'], 422);
-            }
-            $sameCompany = ChartAccount::where('id',$request->parent_id)
-                ->where('company_id',$chartAccount->company_id)->exists();
-            if (!$sameCompany) {
-                return response()->json(['message' => 'Parent must be from the same company'], 422);
-            }
-            if ($this->isDescendant($request->parent_id, $chartAccount->id)) {
-                return response()->json(['message' => 'Cannot move under a descendant'], 422);
-            }
-        }
-
-
-        $newType = $request->input('type', $chartAccount->type);
-
-        $chartAccount->fill($request->only([
-            'name','type','detail_type','parent_id','is_active'
-        ]));
-        $chartAccount->updated_by = optional($request->user())->id;
-        $chartAccount->save();
-
-        return response()->json($chartAccount->fresh());
     }
 
     public function destroy(ChartAccount $chartAccount)

@@ -6,24 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class Product extends Model
 {
-    protected $fillable = [
-        'company_id',
-        'product_type',     // Stock | Non-stock | Service | Combo
-        'name',
-        'sku',
-        'barcode',
-        'category_id',
-        'brand_id',
-        'unit',
-        'costing_price',
-        'sales_price',
-        'tax_percent',
-        'has_warranty',
-        'warranty_days',
-        'description',
-        'status',           // active | inactive
-        'meta',
-    ];
+    protected $guarded = [];
 
     protected $casts = [
         'meta'          => 'array',

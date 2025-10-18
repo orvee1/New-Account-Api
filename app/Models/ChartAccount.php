@@ -10,15 +10,11 @@ class ChartAccount extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = [
-        'company_id','account_no','name','type','detail_type',
-        'parent_id','is_header','is_active','balance','created_by','updated_by'
-    ];
+    protected $guarded = [];
 
     protected $casts = [
-        'is_header' => 'boolean',
         'is_active' => 'boolean',
-        'balance'   => 'decimal:2',
+        'opening_balance'   => 'decimal:2',
     ];
 
     public function company()   { return $this->belongsTo(Company::class); }

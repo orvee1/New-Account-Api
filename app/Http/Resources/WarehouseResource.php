@@ -9,7 +9,7 @@ class WarehouseResource extends JsonResource
     public function toArray($request)
     {
         return [
-            'id'         => (string) $this->id,
+            'id'         => (int) $this->id,
             'name'       => $this->name,
             'is_default' => (bool) $this->is_default,
             'company_id' => (int) $this->company_id,

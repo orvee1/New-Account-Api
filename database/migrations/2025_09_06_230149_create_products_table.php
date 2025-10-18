@@ -30,7 +30,8 @@ return new class extends Migration {
 
             $table->boolean('has_warranty')->default(false);
             $table->unsignedInteger('warranty_days')->nullable();
-
+            $table->date('manufactured_at')->nullable();
+            $table->date('expired_at')->nullable();
             $table->text('description')->nullable();
             $table->enum('status', ['active','inactive'])->default('active')->index();
 

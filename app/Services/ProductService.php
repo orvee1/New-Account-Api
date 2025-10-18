@@ -17,10 +17,14 @@ class ProductService
             'barcode'       => $data['barcode'] ?? null,
             'category_id'   => $data['category_id'] ?? null,
             'brand_id'      => $data['brand_id'] ?? null,
+            'warehouse_id'  => array_key_exists('warehouse_id', $data) ? $data['warehouse_id'] : $product->warehouse_id,
             'unit'          => $data['unit'] ?? null,
             'costing_price' => $data['costing_price'] ?? null,
             'sales_price'   => $data['sales_price'] ?? null,
             'tax_percent'   => $data['tax_percent'] ?? null,
+
+            'manufactured_at'   => $data['manufactured_at'] ?? null,
+            'expired_at'   => $data['expired_at'] ?? null,
             'has_warranty'  => $data['has_warranty'] ?? false,
             'warranty_days' => $data['warranty_days'] ?? null,
             'description'   => $data['description'] ?? null,
@@ -72,10 +76,13 @@ class ProductService
             'barcode'       => $data['barcode']       ?? $product->barcode,
             'category_id'   => array_key_exists('category_id', $data) ? $data['category_id'] : $product->category_id,
             'brand_id'      => array_key_exists('brand_id', $data) ? $data['brand_id'] : $product->brand_id,
+            'warehouse_id'  => array_key_exists('warehouse_id', $data) ? $data['warehouse_id'] : $product->warehouse_id,
             'unit'          => $data['unit']          ?? $product->unit,
             'costing_price' => $data['costing_price'] ?? $product->costing_price,
             'sales_price'   => $data['sales_price']   ?? $product->sales_price,
             'tax_percent'   => $data['tax_percent']   ?? $product->tax_percent,
+            'manufactured_at'   => $data['manufactured_at'] ?? null,
+            'expired_at'   => $data['expired_at'] ?? null,
             'has_warranty'  => $data['has_warranty']  ?? $product->has_warranty,
             'warranty_days' => $data['warranty_days'] ?? $product->warranty_days,
             'description'   => $data['description']   ?? $product->description,
@@ -111,6 +118,7 @@ class ProductService
     {
         /** @var Builder $q */
         $q = Product::query()->where('company_id', auth()->user()->company_id);
+        $q->with(['units','comboItems.itemProduct']);
 
         $q->when(!empty($filters['q']), function (Builder $qr) use ($filters) {
             $term = $filters['q'];

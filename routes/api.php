@@ -35,7 +35,6 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::post('company-users/{companyUser}/make-primary', [CompanyUserController::class, 'makePrimary'])
         ->name('api.admin.company-users.make-primary');
     Route::get('/chart-accounts/options', [ChartAccountController::class, 'options']);
-    Route::get('/chart-accounts/tree',    [ChartAccountController::class, 'tree']);
     Route::apiResource('chart-accounts', ChartAccountController::class)
         ->only(['index','store','show','update','destroy']);
 

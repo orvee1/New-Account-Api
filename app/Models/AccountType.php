@@ -7,5 +7,15 @@ use Illuminate\Database\Eloquent\Model;
 
 class AccountType extends Model
 {
-    use HasFactory;
+    protected $fillable = ['name', 'parent_id'];
+
+    public function children()
+    {
+        return $this->hasMany(self::class, 'parent_id');
+    }
+
+    public function scopeParents($q)
+    {
+        return $q->where('parent_id', 0);
+    }
 }

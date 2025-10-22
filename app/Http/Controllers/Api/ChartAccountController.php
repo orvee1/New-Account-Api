@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\API;
+namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreChartAccountRequest;
@@ -38,12 +38,12 @@ class ChartAccountController extends Controller
             ->when($trashed === 'only', fn($q) => $q->onlyTrashed())
             ->when($q, function ($qq) use ($q) {
                 $qq->where(function ($w) use ($q) {
-                    $w->where('name', 'like', "%{$q}%")
+                    $w->where('account_name', 'like', "%{$q}%")
                       ->orWhere('account_no', 'like', "%{$q}%")
                       ->orWhere('detail_type', 'like', "%{$q}%");
                 });
             })
-            ->when($type, fn($qq) => $qq->where('type', $type))
+            ->when($type, fn($qq) => $qq->where('account_type', $type))
             ->when($detail, fn($qq) => $qq->where('detail_type', $detail))
             ->orderBy('account_no');
 
@@ -130,7 +130,7 @@ class ChartAccountController extends Controller
     public function forceDelete($id)
     {
         $acc = ChartAccount::withTrashed()->findOrFail($id);
-        $hasChildren = ChartAccount::withTrashed()->where('parent_id', $acc->id)->exists();
+        $hasChildren = ChartAccount::withTrashed()->where('parent_account_id', $acc->id)->exists();
         if ($hasChildren) {
             return response()->json(['message' => 'Remove or reassign children before permanent delete'], 422);
         }
@@ -143,7 +143,7 @@ class ChartAccountController extends Controller
         $current = ChartAccount::withTrashed()->find($maybeParentId);
         while ($current) {
             if ((int)$current->id === (int)$nodeId) return true;
-            $current = $current->parent_id ? ChartAccount::withTrashed()->find($current->parent_id) : null;
+            $current = $current->parent_account_id ? ChartAccount::withTrashed()->find($current->parent_account_id) : null;
         }
         return false;
     }

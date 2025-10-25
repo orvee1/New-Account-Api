@@ -1,15 +1,13 @@
 <?php
 
 namespace App\Http\Controllers\Api;
+
 use App\Http\Controllers\Api\Auth\ForgotPasswordController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
 use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
 use Illuminate\Support\Facades\Route;
-
-
-
 
 /*
 |--------------------------------------------------------------------------
@@ -21,11 +19,12 @@ use Illuminate\Support\Facades\Route;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-Route::post('/register',[RegisterController::class, 'register']);
-Route::post('/login',[LoginController::class, 'login']);
-Route::middleware('auth:sanctum', 'verified')->group( function () {
+
+Route::post('/register', [RegisterController::class, 'register']);
+Route::post('/login', [LoginController::class, 'login']);
+Route::middleware('auth:sanctum', 'verified')->group(function () {
     // Authentication
-    Route::post('/logout',[LogoutController::class, 'logout']);
+    Route::post('/logout', [LogoutController::class, 'logout']);
     // Route::post('/send-otp', [EmailVerificationController::class, 'sendOtp']);
     // Route::post('/verify-otp',[EmailVerificationController::class, 'verifyOtp']);
     // Chart of Accounts
@@ -36,7 +35,7 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
         ->name('api.admin.company-users.make-primary');
     Route::get('/chart-accounts/options', [ChartAccountController::class, 'options']);
     Route::apiResource('chart-accounts', ChartAccountController::class)
-        ->only(['index','store','show','update','destroy']);
+        ->only(['index', 'store', 'show', 'update', 'destroy']);
 
     // Soft delete lifecycle
     Route::post('/chart-accounts/{id}/restore', [ChartAccountController::class, 'restore']);
@@ -55,7 +54,21 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     // Purchase Routes
     Route::apiResource('purchase-bills', PurchaseBillController::class);
     Route::apiResource('purchase-returns', PurchaseReturnController::class);
-
+    // SalesInvoice Routes
+    Route::apiResource('sales-invoices', SalesInvoiceController::class);
+    Route::post('sales-invoices/{salesInvoice}/post', [SalesInvoiceController::class, 'post']);
+    Route::post('sales-invoices/{salesInvoice}/void', [SalesInvoiceController::class, 'void']);
+    // Sales Estimate Routes
+    Route::apiResource('estimates', EstimateController::class);
+    Route::post('estimates/{estimate}/finalize', [EstimateController::class, 'finalize']);
+    // Sales Order Routes
+    Route::apiResource('sales-orders', SalesOrderController::class);
+    Route::post('sales-orders/{salesOrder}/confirm', [SalesOrderController::class, 'confirm']);
+    Route::post('sales-orders/{salesOrder}/cancel', [SalesOrderController::class, 'cancel']);
+    // Sales Return Routes
+    Route::apiResource('sales-returns', SalesReturnController::class);
+    Route::post('sales-returns/{salesReturn}/post', [SalesReturnController::class, 'post']);
+    Route::post('sales-returns/{salesReturn}/unpost', [SalesReturnController::class, 'unpost']);
     // vendors
     Route::apiResource('vendors', VendorController::class);
     Route::apiResource('warehouses', WarehouseController::class);
@@ -64,8 +77,6 @@ Route::middleware('auth:sanctum', 'verified')->group( function () {
     Route::apiResource('customers', CustomerController::class);
     Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])
         ->name('customers.restore');
-
-
 });
 Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
 Route::post('password/reset', [ResetPasswordController::class, 'reset']);

@@ -45,7 +45,7 @@ Route::middleware('auth:sanctum', 'verified')->group(function () {
     Route::apiResource('product-categories', CategoryController::class);
     Route::apiResource('brands', BrandController::class);
     // Fixed Asset Route
-w    Route::apiResource('fixed-assets', FixedAssetController::class);
+    Route::apiResource('fixed-assets', FixedAssetController::class);
     // Asset Depreciation Route
     Route::apiResource('asset-depreciations', AssetDepreciationController::class);
     // Asset Disposal Route

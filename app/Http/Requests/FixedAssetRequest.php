@@ -28,6 +28,7 @@ class FixedAssetRequest extends FormRequest
             'depreciation_rate'   => ['nullable','numeric','min:0','max:1000'],
             'asset_location'      => ['nullable','string','max:255'],
             'tag_serial_number'   => ['nullable','string','max:255'],
+            'status'              => ['required','string','in:Active,Sold,Disposed,Written Off'],
         ];
 
         // payment_mode required unless On Credit
@@ -39,7 +40,7 @@ class FixedAssetRequest extends FormRequest
         if ($isCreate) {
             $base['tag_serial_number'][] = 'unique:fixed_assets,tag_serial_number,NULL,id,company_id,' . $companyId;
         } else {
-            $routeParam = $this->route('asset');
+            $routeParam = $this->route('fixed_asset');
             $assetId = is_object($routeParam) ? ($routeParam->id ?? null) : $routeParam;
             $base['tag_serial_number'][] = 'unique:fixed_assets,tag_serial_number,' . $assetId . ',id,company_id,' . $companyId;
         }

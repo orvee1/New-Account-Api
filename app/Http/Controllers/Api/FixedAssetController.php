@@ -158,6 +158,7 @@ class FixedAssetController extends Controller
             'asset_location'      => 'asset_location',
             'tagSerialNumber'     => 'tag_serial_number',
             'tag_serial_number'   => 'tag_serial_number',
+            'status'              => 'status',
         ];
 
         $out = [];

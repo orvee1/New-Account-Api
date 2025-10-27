@@ -24,6 +24,7 @@ class AssetResource extends JsonResource
             'depreciationRate'   => $this->depreciation_rate !== null ? (float) $this->depreciation_rate : null,
             'assetLocation'      => $this->asset_location,
             'tagSerialNumber'    => $this->tag_serial_number,
+            'status'             => $this->status,
 
             'companyId'          => $this->company_id,
             'createdAt'          => $this->created_at?->toISOString(),

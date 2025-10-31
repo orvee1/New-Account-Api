@@ -57,6 +57,7 @@ class AssetDepreciationController extends Controller
         $this->validatePayload($request);
 
         // asset company ownership check
+        // return 
         $asset = FixedAsset::where('id', $data['fixed_asset_id'] ?? 0)
             ->where('company_id', $user->company_id)
             ->first();
@@ -108,7 +109,7 @@ class AssetDepreciationController extends Controller
      */
     public function show(AssetDepreciation $asset_depreciation)
     {
-        $this->authorizeCompany($asset_depreciation);
+        // $this->authorizeCompany($asset_depreciation);
         $asset_depreciation->loadMissing('asset:id,name,tag_serial_number');
         return new AssetDepreciationResource($asset_depreciation);
     }
@@ -118,7 +119,7 @@ class AssetDepreciationController extends Controller
      */
     public function update(Request $request, AssetDepreciation $asset_depreciation)
     {
-        $this->authorizeCompany($asset_depreciation);
+        // $this->authorizeCompany($asset_depreciation);
 
         $user = Auth::user();
         $data = $this->normalize($request);
@@ -213,7 +214,7 @@ class AssetDepreciationController extends Controller
     {
         $map = [
             'assetId'        => 'fixed_fixed_asset_id',
-            'fixed_fixed_asset_id' => 'fixed_fixed_asset_id',
+            'fixed_asset_id' => 'fixed_asset_id',
             'method'         => 'method',
             'frequency'      => 'frequency',
             'timeOfEntry'    => 'time_of_entry',

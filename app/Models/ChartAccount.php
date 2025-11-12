@@ -18,8 +18,8 @@ class ChartAccount extends Model
     ];
 
     public function company()   { return $this->belongsTo(Company::class); }
-    public function parent()    { return $this->belongsTo(ChartAccount::class, 'parent_id'); }
-    public function children()  { return $this->hasMany(ChartAccount::class, 'parent_id'); }
+    public function parent()    { return $this->belongsTo(ChartAccount::class, 'parent_account_id'); }
+    public function children()  { return $this->hasMany(ChartAccount::class, 'parent_account_id'); }
     public function creator()   { return $this->belongsTo(User::class, 'created_by'); }
     public function updater()   { return $this->belongsTo(User::class, 'updated_by'); }
 

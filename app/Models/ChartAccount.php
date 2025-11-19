@@ -1,38 +1,60 @@
 <?php
 
+// app/Models/ChartAccount.php
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ChartAccount extends Model
 {
-    use HasFactory, SoftDeletes;
-
     protected $guarded = [];
 
     protected $casts = [
         'is_active' => 'boolean',
-        'opening_balance'   => 'decimal:2',
     ];
 
-    public function company()   { return $this->belongsTo(Company::class); }
-    public function parent()    { return $this->belongsTo(ChartAccount::class, 'parent_account_id'); }
-    public function children()  { return $this->hasMany(ChartAccount::class, 'parent_account_id'); }
-    public function creator()   { return $this->belongsTo(User::class, 'created_by'); }
-    public function updater()   { return $this->belongsTo(User::class, 'updated_by'); }
-
-    public function scopeSearch($q, ?string $term) {
-        if (!$term) return $q;
-        return $q->where(function($qq) use ($term){
-            $qq->where('name','like',"%{$term}%")
-               ->orWhere('account_no','like',"%{$term}%")
-               ->orWhere('detail_type','like',"%{$term}%");
-        });
+    /* ---------------- Relations ---------------- */
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
     }
 
-    public function scopeCompany($q, $companyId) {
-        return $q->where('company_id', $companyId);
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(ChartAccount::class, 'parent_id');
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(ChartAccount::class, 'parent_id')->orderBy('sort_order')->orderBy('name');
+    }
+
+    /* ---------------- Scopes ---------------- */
+    public function scopeRoot($q)
+    {
+        return $q->whereNull('parent_id');
+    }
+
+    public function scopeGroups($q)
+    {
+        return $q->where('type', 'group');
+    }
+
+    public function scopeLedgers($q)
+    {
+        return $q->where('type', 'ledger');
+    }
+
+    /* ---------------- Accessors ---------------- */
+    public function getIsGroupAttribute(): bool
+    {
+        return $this->type === 'group';
+    }
+
+    public function getIsLedgerAttribute(): bool
+    {
+        return $this->type === 'ledger';
     }
 }

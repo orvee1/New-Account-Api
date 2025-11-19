@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\RoleConroller;
 use App\Http\Controllers\Admin\AdminOtpSendController;
 use App\Http\Controllers\Admin\CompanyController;
 use App\Http\Controllers\Admin\CompanyUserController;
+use App\Http\Controllers\Api\ChartAccountController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\WhatsAppController;
 use App\Models\Menu;
@@ -44,7 +45,9 @@ Route::group(['middleware' => ['auth'], 'prefix' => 'admin'], function () {
     Route::post('company-users/{companyUser}/toggle-status', [CompanyUserController::class, 'toggleStatus'])
         ->name('company-users.toggle-status');
     Route::post('company-users/{companyUser}/make-primary', [CompanyUserController::class, 'makePrimary'])
-        ->name('company-users.make-primary');;
+        ->name('company-users.make-primary');
+    Route::get('/companies/{company}/chart-accounts', [ChartAccountController::class, 'index']);
+    Route::post('/companies/{company}/chart-accounts', [ChartAccountController::class, 'store']); // add group/ledger
 });
 
 // 'admin.device.browser', 'admin' need to use for admin device
@@ -66,13 +69,13 @@ Route::group(['middleware' => ['auth'], 'prefix' => 'admin'], function () {
     Route::resource('permissions', PermissionConroller::class)->middleware(['role:Administrator|Developer']);
     Route::resource('menus', MenuController::class)->middleware(['role:Administrator|Developer']);
     // Admin Device Log Routes
-    Route::get('admin-device-log', [AdminDeviceLogController::class, 'index'])->middleware(['role:Administrator|Developer']);;
+    Route::get('admin-device-log', [AdminDeviceLogController::class, 'index'])->middleware(['role:Administrator|Developer']);
+    ;
     Route::get('admin-device-log/{user}', [AdminDeviceLogController::class, 'show']);
     Route::put('admin-device-log/{admin_device}/requests/{admin_device_request}', [AdminDeviceLogController::class, 'acceptDeviceRequest'])
         ->name('admin-device.requests.update');
     Route::put('admin-device-log/{admin_device}/cancel-requests/{admin_device_request}', [AdminDeviceLogController::class, 'cancelDeviceRequest'])
         ->name('admin-device.requests.cancel');
     Route::get('test-whatsapp-message', [WhatsAppController::class, 'sendMessage']);
-
 });
 require __DIR__ . '/auth.php';

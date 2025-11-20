@@ -1,82 +1,94 @@
 <?php
 
-namespace App\Http\Controllers\Api;
-
-use App\Http\Controllers\Api\Auth\ForgotPasswordController;
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\Auth\RegisterController;
 use App\Http\Controllers\Api\Auth\LoginController;
 use App\Http\Controllers\Api\Auth\LogoutController;
-use App\Http\Controllers\Api\Auth\RegisterController;
+use App\Http\Controllers\Api\Auth\ForgotPasswordController;
 use App\Http\Controllers\Api\Auth\ResetPasswordController;
-use Illuminate\Support\Facades\Route;
+
+use App\Http\Controllers\Api\CompanyUserController;
+use App\Http\Controllers\Api\ChartAccountController;
+use App\Http\Controllers\Api\ProductController;
+use App\Http\Controllers\Api\CategoryController;
+use App\Http\Controllers\Api\BrandController;
+use App\Http\Controllers\Api\FixedAssetController;
+use App\Http\Controllers\Api\AssetDepreciationController;
+use App\Http\Controllers\Api\AssetDisposalController;
+use App\Http\Controllers\Api\PurchaseBillController;
+use App\Http\Controllers\Api\PurchaseReturnController;
+use App\Http\Controllers\Api\VendorController;
+use App\Http\Controllers\Api\WarehouseController;
+use App\Http\Controllers\Api\CustomerController;
 
 /*
 |--------------------------------------------------------------------------
-| API Routes
+| Public Auth Routes
 |--------------------------------------------------------------------------
-|
-| Here is where you can register API routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "api" middleware group. Make something great!
-|
 */
+Route::post('/register',[RegisterController::class, 'register']);
+Route::post('/login',[LoginController::class, 'login']);
 
-Route::post('/register', [RegisterController::class, 'register']);
-Route::post('/login', [LoginController::class, 'login']);
-Route::middleware('auth:sanctum', 'verified')->group(function () {
-    // Authentication
-    Route::post('/logout', [LogoutController::class, 'logout']);
-    // Route::post('/send-otp', [EmailVerificationController::class, 'sendOtp']);
-    // Route::post('/verify-otp',[EmailVerificationController::class, 'verifyOtp']);
-    // Chart of Accounts
+Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
+Route::post('password/reset', [ResetPasswordController::class, 'reset']);
+
+/*
+|--------------------------------------------------------------------------
+| Protected Routes (auth:sanctum, verified)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'verified'])->group(function () {
+
+    // Auth
+    Route::post('/logout',[LogoutController::class, 'logout']);
+
+    // Company users
     Route::apiResource('company-users', CompanyUserController::class);
     Route::post('company-users/{companyUser}/toggle-status', [CompanyUserController::class, 'toggleStatus'])
         ->name('api.admin.company-users.toggle-status');
     Route::post('company-users/{companyUser}/make-primary', [CompanyUserController::class, 'makePrimary'])
         ->name('api.admin.company-users.make-primary');
-    Route::get('/chart-accounts/options', [ChartAccountController::class, 'options']);
-    Route::apiResource('chart-accounts', ChartAccountController::class)
-        ->only(['index', 'store', 'show', 'update', 'destroy']);
 
-    // Soft delete lifecycle
-    Route::post('/chart-accounts/{id}/restore', [ChartAccountController::class, 'restore']);
-    Route::delete('/chart-accounts/{id}/force', [ChartAccountController::class, 'forceDelete']);
-    //porducts
+    // ===== Chart of Accounts (generic options) =====
+    Route::get('/chart-accounts/options', [ChartAccountController::class, 'options']);
+
+    // ===== Company wise Chart of Accounts =====
+    Route::prefix('companies/{company}')->group(function () {
+        // index + store
+        Route::get('chart-accounts', [ChartAccountController::class, 'index']);
+        Route::post('chart-accounts', [ChartAccountController::class, 'store']);
+
+        // show / update / delete নির্দিষ্ট নোডের জন্য
+        Route::get('chart-accounts/{chartAccount}', [ChartAccountController::class, 'show']);
+        Route::put('chart-accounts/{chartAccount}', [ChartAccountController::class, 'update']);
+        Route::delete('chart-accounts/{chartAccount}', [ChartAccountController::class, 'destroy']);
+
+        // soft-delete lifecycle
+        Route::post('chart-accounts/{chartAccount}/restore', [ChartAccountController::class, 'restore']);
+        Route::delete('chart-accounts/{chartAccount}/force', [ChartAccountController::class, 'forceDelete']);
+    });
+
+    // Products
     Route::apiResource('products', ProductController::class);
     Route::apiResource('product-categories', CategoryController::class);
     Route::apiResource('brands', BrandController::class);
-    // Fixed Asset Route
-    Route::apiResource('fixed-assets', FixedAssetController::class);
-    // Asset Depreciation Route
+
+    // Fixed Asset
+    Route::apiResource('assets', FixedAssetController::class);
     Route::apiResource('asset-depreciations', AssetDepreciationController::class);
-    // Asset Disposal Route
     Route::apiResource('asset-disposals', AssetDisposalController::class);
 
-    // Purchase Routes
+    // Purchase
     Route::apiResource('purchase-bills', PurchaseBillController::class);
     Route::apiResource('purchase-returns', PurchaseReturnController::class);
-    // SalesInvoice Routes
-    Route::apiResource('sales-invoices', SalesInvoiceController::class);
-    Route::post('sales-invoices/{salesInvoice}/post', [SalesInvoiceController::class, 'post']);
-    Route::post('sales-invoices/{salesInvoice}/void', [SalesInvoiceController::class, 'void']);
-    // Sales Estimate Routes
-    Route::apiResource('estimates', EstimateController::class);
-    Route::post('estimates/{estimate}/finalize', [EstimateController::class, 'finalize']);
-    // Sales Order Routes
-    Route::apiResource('sales-orders', SalesOrderController::class);
-    Route::post('sales-orders/{salesOrder}/confirm', [SalesOrderController::class, 'confirm']);
-    Route::post('sales-orders/{salesOrder}/cancel', [SalesOrderController::class, 'cancel']);
-    // Sales Return Routes
-    Route::apiResource('sales-returns', SalesReturnController::class);
-    Route::post('sales-returns/{salesReturn}/post', [SalesReturnController::class, 'post']);
-    Route::post('sales-returns/{salesReturn}/unpost', [SalesReturnController::class, 'unpost']);
-    // vendors
+
+    // Vendors / Warehouses
     Route::apiResource('vendors', VendorController::class);
     Route::apiResource('warehouses', WarehouseController::class);
-    Route::post('/warehouses/{warehouse}/make-default', [WarehouseController::class, 'makeDefault']);
-    // RESTful CRUD (index, store, show, update, destroy)
+    Route::post('warehouses/{warehouse}/make-default', [WarehouseController::class, 'makeDefault']);
+
+    // Customers
     Route::apiResource('customers', CustomerController::class);
     Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])
         ->name('customers.restore');
 });
-Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
-Route::post('password/reset', [ResetPasswordController::class, 'reset']);

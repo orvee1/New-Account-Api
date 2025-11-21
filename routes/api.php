@@ -20,14 +20,16 @@ use App\Http\Controllers\Api\PurchaseReturnController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\WarehouseController;
 use App\Http\Controllers\Api\CustomerController;
+use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
 | Public Auth Routes
 |--------------------------------------------------------------------------
 */
-Route::post('/register',[RegisterController::class, 'register']);
-Route::post('/login',[LoginController::class, 'login']);
+
+Route::post('/register', [RegisterController::class, 'register']);
+Route::post('/login', [LoginController::class, 'login']);
 
 Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
 Route::post('password/reset', [ResetPasswordController::class, 'reset']);
@@ -39,8 +41,33 @@ Route::post('password/reset', [ResetPasswordController::class, 'reset']);
 */
 Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
+     Route::get('/user', function (Request $request) {
+        /** @var \App\Models\CompanyUser|null $user */
+        $user = $request->user();   // Sanctum token থেকে CompanyUser আসবে
+
+        if (!$user) {
+            return response()->json(['user' => null], 200);
+        }
+
+        // company relation সহ পাঠাতে চাইলে
+        $user->load('company:id,name');
+
+        return response()->json([
+            'user' => $user,
+        ]);
+    });
+
+    Route::get('/user/permissions', function (Request $request) {
+        /** @var \App\Models\CompanyUser|null $user */
+        $user = $request->user();
+
+        return response()->json([
+            'permissions' => $user?->permissions ?? [],
+        ]);
+    });
+
     // Auth
-    Route::post('/logout',[LogoutController::class, 'logout']);
+    Route::post('/logout', [LogoutController::class, 'logout']);
 
     // Company users
     Route::apiResource('company-users', CompanyUserController::class);

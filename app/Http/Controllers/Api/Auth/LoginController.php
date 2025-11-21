@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Hash;
 class LoginController extends Controller
 {
     public function login(Request $request){
+
         $request->validate([
             'email'=>'required|string|email',
             'password'=>'required|string'
@@ -18,17 +19,25 @@ class LoginController extends Controller
 
         $user= CompanyUser::query()
             ->with('company:id,name')
-            ->where('email', $request->email)->first();
-     if($user && Hash::check($request->password,$user->password)){
-        Auth::login($user);
-        $token= $user->createToken('auth_token')->plainTextToken;
+            ->where('email', $request->email)
+            ->first();
+         
 
-        return response()->json([
-            'message'=>'Login Successful',
-            'token'=>$token,
-            'user'=>$user,
-        ], 200);
-     }
+        if ($user && Hash::check($request->password,$user->password)) {
+            Auth::login($user);
+            $token = $user->createToken('auth_token')->plainTextToken;
+
+            // last_login_at update করতে চাইলে:
+            $user->markLoggedIn();
+
+            return response()->json([
+                'message'    => 'Login Successful',
+                'token'      => $token,
+                'user'       => $user,
+                'company_id' => $user->company_id,
+            ], 200);
+        }
+
         return response()->json(['message'=>'Invalid Credentials'], 401);
     }
 }

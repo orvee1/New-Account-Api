@@ -1,0 +1,59 @@
+<?php
+
+use Illuminate\Support\Facades\DB;
+
+function traverseCoaTree($nodes, &$result)
+{
+    foreach ($nodes as $node) {
+
+        $name = $node['name'] ?? null;
+
+        if ($name) {
+            $result[] = [
+                'name' => $name,
+                'code' => $node['code'] ?? null,
+            ];
+        }
+
+        if (isset($node['children'])) {
+            traverseCoaTree($node['children'], $result);
+        }
+    }
+}
+
+// STEP–1: Load your tree
+$tree = config('coa');
+
+// STEP–2: Extract names
+$accounts = [];
+traverseCoaTree($tree, $accounts);
+
+// We want these specific accounts
+$targetNames = [
+    'inventory'         => ['Inventory'],
+    'cash'              => ['Cash'],
+    'bank'              => ['Bank A/C-Current', 'Bank A/C-Saving'],
+    'accounts_payable'  => ['A/C Payable', 'Account Payable'],
+];
+
+// STEP–3: Match from DB
+$finalMap = [];
+
+foreach ($targetNames as $key => $names) {
+    $account = DB::table('chart_accounts')
+        ->whereIn('account_name', $names)
+        ->first();
+
+    if ($account) {
+        $finalMap[$key] = $account->id;
+    } else {
+        $finalMap[$key] = null;
+    }
+}
+
+// STEP–4: Generate config/coa_map.php output
+$content = "<?php\n\nreturn " . var_export($finalMap, true) . ";\n";
+
+file_put_contents(config_path('coa_map.php'), $content);
+
+echo "COA Mapping generated successfully: config/coa_map.php \n";

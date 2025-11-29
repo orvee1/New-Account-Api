@@ -9,13 +9,18 @@ class PurchaseBillItem extends Model
 {
     use BelongsToCompany;
 
+    // protected $fillable = [
+    //     'purchase_bill_id','product_id',
+    //     'qty_unit_id','qty','qty_base',
+    //     'rate_unit_id','rate_per_unit','rate_per_base',
+    //     'discount_percent','discount_amount',
+    //     'line_subtotal','line_total',
+    //     'warehouse_id','batch_id','batch_no','manufactured_at','expired_at',
+    // ];
     protected $fillable = [
-        'purchase_bill_id','product_id',
-        'qty_unit_id','qty','qty_base',
-        'rate_unit_id','rate_per_unit','rate_per_base',
-        'discount_percent','discount_amount',
-        'line_subtotal','line_total',
-        'warehouse_id','batch_id','batch_no','manufactured_at','expired_at',
+        'company_id','purchase_bill_id','product_id','qty_unit_id','qty',
+        'qty_base','rate_unit_id','rate_per_unit', 'rate_per_base','discount_percent',
+        'discount_amount','line_subtotal','line_total','warehouse_id'
     ];
 
     protected $casts = [

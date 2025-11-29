@@ -1,7 +1,9 @@
 <?php
+
 namespace App\Services;
 
 use App\Models\ChartAccount;
+use App\Models\Customer;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use Illuminate\Support\Facades\DB;
@@ -20,34 +22,37 @@ class CustomerOpeningBalanceService
         $amount = (float) $customer->opening_balance;
         $type = $customer->opening_balance_type; // 'debit' or 'credit'
 
-        if ($amount <= 0 || !in_array($type, ['debit','credit'])) {
+        if ($amount <= 0 || !in_array($type, ['debit', 'credit'])) {
             return null;
         }
-
+        $companyId = $customer->company_id;
         // find accounts
-        $ar = ChartAccount::where('slug', 'accounts-receivable')->first();
-        $advance = ChartAccount::where('slug', 'customer-advance')->first();
-        $openingEquity = ChartAccount::where('slug', 'opening-balances')->first();
+        $accountReceivable = $this->getAccountReceivable($companyId);
+        $customerAdvance  = $this->getCustomerAdvance($companyId);
+        $openingEquity  = $this->getOpeningEquity($companyId);
 
-        if (!$ar || !$openingEquity || !$advance) {
+        if (!$accountReceivable || !$openingEquity || !$customerAdvance) {
             throw new \Exception('Required chart accounts are missing. Run the ChartAccountSeeder.');
         }
 
-        return DB::transaction(function () use ($customer, $amount, $type, $ar, $advance, $openingEquity) {
+        return DB::transaction(function () use ($customer, $amount, $type, $accountReceivable, $customerAdvance, $openingEquity) {
             $je = JournalEntry::create([
-                'date' => Carbon::today(),
-                'reference' => 'OPENING_BAL_' . $customer->id,
-                'description' => 'Opening balance for customer ID: ' . $customer->id,
+                'entry_date'       => Carbon::today(),
+                'company_id'       => $customer->company_id,
+                'reference_id'     => $customer->id,
+                'reference_type'   => Customer::class,
+                'description'      => 'Opening balance for customer : ' . $customer->name ?? '',
+                'created_by'       => $customer->created_by,
             ]);
 
             // If opening balance is DEBIT: Customer owes us => Debit AR, Credit Opening Balances (Equity)
             if ($type === 'debit') {
                 JournalLine::create([
                     'journal_entry_id' => $je->id,
-                    'chart_account_id' => $ar->id,
+                    'chart_account_id' => $accountReceivable->id,
                     'debit' => $amount,
                     'credit' => 0,
-                    'narration' => 'Opening balance (DR) - Customer: '.$customer->name,
+                    'narration' => 'Opening balance (DR) - Customer: ' . $customer->name,
                 ]);
 
                 JournalLine::create([
@@ -69,14 +74,95 @@ class CustomerOpeningBalanceService
 
                 JournalLine::create([
                     'journal_entry_id' => $je->id,
-                    'chart_account_id' => $advance->id,
+                    'chart_account_id' => $customerAdvance->id,
                     'debit' => 0,
                     'credit' => $amount,
-                    'narration' => 'Opening balance (CR) - Customer: '.$customer->name,
+                    'narration' => 'Opening balance (CR) - Customer: ' . $customer->name,
                 ]);
             }
 
             return $je;
         });
+    }
+
+    public function getAccountReceivable(int $companyId)
+    {
+        $accountReceivable = ChartAccount::where('slug', 'account-receivable')
+            ->where('company_id', $companyId)
+            ->first();
+
+        if (!$accountReceivable) {
+            $parent = ChartAccount::where([
+                'slug' => 'account-receivable',
+                'type' => 'group',
+                'company_id' => $companyId,
+            ])->first();
+
+            if ($parent) {
+                $accountReceivable = ChartAccount::create([
+                    'parent_id' => $parent->id,
+                    'type' => 'ledger',
+                    'company_id' => $companyId,
+                    'name' => 'Account Receivable',
+                    'slug' => 'account-receivable',
+                ]);
+                $accountReceivable->path = $parent ? rtrim($parent->path, '/') . '/' . $accountReceivable->id : '/' . $accountReceivable->id;
+                $accountReceivable->save();
+            }
+        }
+        return $accountReceivable ?? null;
+    }
+
+    public function getCustomerAdvance(int $companyId)
+    {
+        $customerAdvance = ChartAccount::where('slug', 'customer-advance')->first();
+
+        if (!$customerAdvance) {
+            $parent = ChartAccount::where([
+                'slug' => 'current-liability',
+                'type' => 'group',
+                'company_id' => $companyId,
+            ])->first();
+
+            if ($parent) {
+                $customerAdvance = ChartAccount::create([
+                    'parent_id' => $parent->id,
+                    'type' => 'ledger',
+                    'company_id' => $companyId,
+                    'name' => 'Customer Advance',
+                    'slug' => 'customer-advance',
+                ]);
+                $customerAdvance->path = $parent ? rtrim($parent->path, '/') . '/' . $customerAdvance->id : '/' . $customerAdvance->id;
+                $customerAdvance->save();
+            }
+        }
+
+        return $customerAdvance ?? null;
+    }
+    public function getOpeningEquity(int $companyId)
+    {
+        $openingEquity = ChartAccount::where('slug', 'opening-balances')->first();
+
+        if (!$openingEquity) {
+            $parent = ChartAccount::where([
+                'slug' => 'owners-capital',
+                'type' => 'group',
+                'company_id' => $companyId,
+            ])->first();
+
+            if ($parent) {
+                $openingEquity = ChartAccount::create([
+                    'parent_id' => $parent->id,
+                    'type' => 'ledger',
+                    'company_id' => $companyId,
+                    'name' => 'Opening  Balances',
+                    'slug' => 'opening-balances',
+                ]);
+                $openingEquity->path = $parent ? rtrim($parent->path, '/') . '/' . $openingEquity->id : '/' . $openingEquity->id;
+                $openingEquity->save();
+            }
+        }
+
+        return $openingEquity ?? null;
     }
 }

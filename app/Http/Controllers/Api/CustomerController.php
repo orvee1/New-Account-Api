@@ -68,7 +68,7 @@ class CustomerController extends Controller
             // POST OPENING BALANCE JOURNAL (IF ANY)
             if (
                 $customer->opening_balance > 0 &&
-                in_array($customer->opening_balance_type, ['debit','credit'])
+                in_array($customer->opening_balance_type, ['debit', 'credit'])
             ) {
                 $this->openingService->createOpeningBalanceJournal($customer);
             }
@@ -84,17 +84,6 @@ class CustomerController extends Controller
         return DB::transaction(function () use ($request, $customer) {
             $customer->fill($request->validated());
             $customer->save();
-
-            // Re-post new opening balance (if changed)
-            if (
-                $customer->opening_balance > 0 &&
-                in_array($customer->opening_balance_type, ['debit','credit'])
-            ) {
-                // Delete previous opening journals if needed (optional improvement)
-                // TODO: implement cleanup if you want strict accuracy
-
-                $this->openingService->createOpeningBalanceJournal($customer);
-            }
 
             return (new CustomerResource($customer))
                 ->additional(['message' => 'Customer updated successfully.']);

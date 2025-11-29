@@ -29,7 +29,7 @@ class JournalLine extends Model
 
     public function account()
     {
-        return $this->belongsTo(Account::class);
+        return $this->belongsTo(ChartAccount::class);
     }
 }
 

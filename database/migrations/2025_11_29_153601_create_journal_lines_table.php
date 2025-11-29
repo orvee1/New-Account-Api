@@ -22,9 +22,8 @@ return new class extends Migration
 
             $table->string('narration')->nullable();
             $table->timestamps();
-             $table->softDeletes();
+            $table->softDeletes();
         });
-
     }
 
     /**

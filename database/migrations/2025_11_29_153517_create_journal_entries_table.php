@@ -14,7 +14,8 @@ return new class extends Migration
         Schema::create('journal_entries', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('company_id');
-            $table->string('reference')->nullable();
+            $table->unsignedBigInteger('reference_id')->nullable();
+            $table->string('reference_type')->nullable();
             $table->date('entry_date');
             $table->text('description')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();

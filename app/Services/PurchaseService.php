@@ -10,40 +10,173 @@ use App\Models\PurchaseBillItem;
 use App\Models\PurchaseReturn;
 use App\Models\PurchaseReturnItem;
 use App\Models\InventoryMovement;
+use App\Models\JournalEntry;
+use App\Models\JournalLine;
+use App\Models\PurchasePayment;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseService
 {
+    // public function createBill(array $payload, int $userId): PurchaseBill
+    // {
+    //     $companyId = Auth::user()->company_id;
+
+    //     return DB::transaction(function () use ($payload, $userId, $companyId) {
+    //         /** @var PurchaseBill $bill */
+    //         $bill = PurchaseBill::create([
+    //             'company_id'   => $companyId,
+    //             'vendor_id'    => $payload['vendor_id'],
+    //             'bill_no'      => $payload['bill_no'],
+    //             'bill_date'    => $payload['bill_date'],
+    //             'due_date'     => Arr::get($payload, 'due_date'),
+    //             'warehouse_id' => Arr::get($payload, 'warehouse_id'),
+    //             'notes'        => Arr::get($payload, 'notes'),
+    //             'tax_amount'   => (float) Arr::get($payload, 'tax_amount', 0),
+    //             'created_by'   => $userId,
+    //         ]);
+
+    //         $totals = $this->attachBillItemsAndMovements($bill, $payload['items'], $userId);
+
+    //         $bill->update([
+    //             'subtotal'       => $totals['subtotal'],
+    //             'discount_total' => $totals['discount_total'],
+    //             'total_amount'   => $totals['subtotal'] - $totals['discount_total'] + (float)$bill->tax_amount,
+    //             'updated_by'     => $userId,
+    //         ]);
+
+    //         return $bill->load(['vendor','items.product']);
+    //     });
+    // }
     public function createBill(array $payload, int $userId): PurchaseBill
     {
         $companyId = Auth::user()->company_id;
 
         return DB::transaction(function () use ($payload, $userId, $companyId) {
+
+        //--------------------------------
+        // 1. Create Bill
+        //--------------------------------
             /** @var PurchaseBill $bill */
             $bill = PurchaseBill::create([
-                'company_id'   => $companyId,
-                'vendor_id'    => $payload['vendor_id'],
-                'bill_no'      => $payload['bill_no'],
-                'bill_date'    => $payload['bill_date'],
-                'due_date'     => Arr::get($payload, 'due_date'),
-                'warehouse_id' => Arr::get($payload, 'warehouse_id'),
-                'notes'        => Arr::get($payload, 'notes'),
-                'tax_amount'   => (float) Arr::get($payload, 'tax_amount', 0),
-                'created_by'   => $userId,
+                'company_id'        => $companyId,
+                'vendor_id'         => $payload['vendor_id'],
+                'bill_no'           => $payload['bill_no'],
+                'bill_date'         => $payload['bill_date'],
+                'due_date'          => Arr::get($payload, 'due_date'),
+                'warehouse_id'      => Arr::get($payload, 'warehouse_id'),
+                'notes'             => Arr::get($payload, 'notes'),
+                'tax_amount'        => (float) Arr::get($payload, 'tax_amount', 0),
+                'created_by'        => $userId,
             ]);
 
-            $totals = $this->attachBillItemsAndMovements($bill, $payload['items'], $userId);
+            //--------------------------------
+            // 2. Insert Items + Stock Movements
+            //--------------------------------
+            $totals = $this->attachBillItemsAndMovements(
+                $bill,
+                $payload['items'],
+                $userId
+            );
+
+            //--------------------------------
+            // 3. Update Totals
+            //--------------------------------
+            $totalAmount = $totals['subtotal']
+                - $totals['discount_total']
+                + (float) $bill->tax_amount;
 
             $bill->update([
-                'subtotal'       => $totals['subtotal'],
-                'discount_total' => $totals['discount_total'],
-                'total_amount'   => $totals['subtotal'] - $totals['discount_total'] + (float)$bill->tax_amount,
-                'updated_by'     => $userId,
+                'subtotal'        => $totals['subtotal'],
+                'discount_total'  => $totals['discount_total'],
+                'total_amount'    => $totalAmount,
+                'updated_by'      => $userId,
             ]);
 
-            return $bill->load(['vendor','items.product']);
+            //--------------------------------
+            // 4. Payment Breakdown
+            //--------------------------------
+            $cash   = Arr::get($payload, 'payments.cash', 0);
+            $bank   = Arr::get($payload, 'payments.bank', 0);
+            $credit = $totalAmount - ($cash + $bank);
+
+            PurchasePayment::create([
+                'purchase_bill_id'  => $bill->id,
+                'cash_amount'       => $cash,
+                'bank_amount'       => $bank,
+                'credit_amount'     => $credit,
+            ]);
+
+            //--------------------------------
+            // 5. Create Journal Entry (Header)
+            //--------------------------------
+            $journalEntry = JournalEntry::create([
+                'company_id' => $companyId,
+                'reference'  => "PB-" . $bill->id,
+                'entry_date' => $payload['bill_date'],
+                'description' => "Purchase Bill #{$bill->bill_no}",
+                'created_by' => $userId,
+            ]);
+
+            //--------------------------------
+            // 6. Journal Lines (DR/CR Lines)
+            //--------------------------------
+
+            // INVENTORY DR
+            JournalLine::create([
+                'journal_entry_id' => $journalEntry->id,
+                'company_id'       => $companyId,
+                // 'account_id'       => coa('inventory'),
+                'account_id'       => config('coa_map.inventory'),
+                'debit'            => $totalAmount,
+                'credit'           => 0,
+                'narration'        => 'Purchase Inventory',
+            ]);
+
+            // CASH CR
+            if ($cash > 0) {
+                JournalLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'company_id'       => $companyId,
+                    // 'account_id'       => coa('cash'),
+                    'account_id'       => config('coa_map.cash'),
+                    'debit'            => 0,
+                    'credit'           => $cash,
+                    'narration'        => 'Cash Payment',
+                ]);
+            }
+
+            // BANK CR
+            if ($bank > 0) {
+                JournalLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'company_id'       => $companyId,
+                    // 'account_id'       => coa('bank'),
+                    'account_id'       => config('coa_map.bank'),
+                    'debit'            => 0,
+                    'credit'           => $bank,
+                    'narration'        => 'Bank Payment',
+                ]);
+            }
+
+            // ACCOUNTS PAYABLE / VENDOR CREDIT CR
+            if ($credit > 0) {
+                JournalLine::create([
+                    'journal_entry_id' => $journalEntry->id,
+                    'company_id'       => $companyId,
+                    // 'account_id'       => coa('accounts_payable'),
+                    'account_id'       => config('coa_map.accounts_payable'),
+                    'debit'            => 0,
+                    'credit'           => $credit,
+                    'narration'        => 'Vendor Credit',
+                ]);
+            }
+
+            //--------------------------------
+            // 7. Return fresh Bill
+            //--------------------------------
+            return $bill->load(['vendor', 'items.product', 'payment']);
         });
     }
 
@@ -73,7 +206,7 @@ class PurchaseService
                 'updated_by'     => $userId,
             ]);
 
-            return $ret->load(['vendor','items.product']);
+            return $ret->load(['vendor', 'items.product']);
         });
     }
 
@@ -81,7 +214,8 @@ class PurchaseService
 
     private function attachBillItemsAndMovements(PurchaseBill $bill, array $items, int $userId): array
     {
-        $subtotal = 0.0; $discountTotal = 0.0;
+        $subtotal = 0.0;
+        $discountTotal = 0.0;
 
         foreach ($items as $i) {
             $product   = Product::query()->findOrFail($i['product_id']);
@@ -100,9 +234,10 @@ class PurchaseService
             $lineTotal = round($lineSub - $discAmt, 4);
 
             // batch ensure
-            $batchId = null; $batchNo = Arr::get($i,'batch_no');
-            $mfg     = Arr::get($i,'manufactured_at');
-            $exp     = Arr::get($i,'expired_at');
+            $batchId = null;
+            $batchNo = Arr::get($i, 'batch_no');
+            $mfg     = Arr::get($i, 'manufactured_at');
+            $exp     = Arr::get($i, 'expired_at');
 
             if ($batchNo) {
                 $batch = ProductBatch::firstOrCreate(
@@ -116,11 +251,11 @@ class PurchaseService
                 $batchId = $batch->id;
             }
 
-            $warehouseId = Arr::get($i,'warehouse_id', $bill->warehouse_id);
+            $warehouseId = Arr::get($i, 'warehouse_id', $bill->warehouse_id);
 
             PurchaseBillItem::create([
                 'company_id'     => $bill->company_id,
-                'purchase_bill_id'=> $bill->id,
+                'purchase_bill_id' => $bill->id,
                 'product_id'     => $product->id,
 
                 'qty_unit_id'    => $qtyUnit->id,
@@ -131,7 +266,7 @@ class PurchaseService
                 'rate_per_unit'  => $i['rate_per_unit'],
                 'rate_per_base'  => $rateBase,
 
-                'discount_percent'=> $discPct,
+                'discount_percent' => $discPct,
                 'discount_amount' => $discAmt,
 
                 'line_subtotal'  => $lineSub,
@@ -140,7 +275,7 @@ class PurchaseService
                 'warehouse_id'   => $warehouseId,
                 'batch_id'       => $batchId,
                 'batch_no'       => $batchNo,
-                'manufactured_at'=> $mfg,
+                'manufactured_at' => $mfg,
                 'expired_at'     => $exp,
             ]);
 
@@ -152,7 +287,7 @@ class PurchaseService
                     'warehouse_id'  => $warehouseId,
                     'batch_id'      => $batchId,
                     'quantity_base' => $qtyBase,              // +ve
-                    'unit_cost_base'=> $rateBase,
+                    'unit_cost_base' => $rateBase,
                     'document_type' => 'purchase_bill',
                     'document_id'   => $bill->id,
                     'meta'          => ['bill_no' => $bill->bill_no],
@@ -161,7 +296,7 @@ class PurchaseService
             }
 
             $subtotal     = round($subtotal + $lineSub, 4);
-            $discountTotal= round($discountTotal + $discAmt, 4);
+            $discountTotal = round($discountTotal + $discAmt, 4);
         }
 
         return ['subtotal' => $subtotal, 'discount_total' => $discountTotal];
@@ -169,7 +304,8 @@ class PurchaseService
 
     private function attachReturnItemsAndMovements(PurchaseReturn $ret, array $items, int $userId): array
     {
-        $subtotal = 0.0; $discountTotal = 0.0;
+        $subtotal = 0.0;
+        $discountTotal = 0.0;
 
         foreach ($items as $i) {
             $product   = Product::query()->findOrFail($i['product_id']);
@@ -187,9 +323,10 @@ class PurchaseService
             }
             $lineTotal = round($lineSub - $discAmt, 4);
 
-            $batchId = null; $batchNo = Arr::get($i,'batch_no');
-            $mfg     = Arr::get($i,'manufactured_at');
-            $exp     = Arr::get($i,'expired_at');
+            $batchId = null;
+            $batchNo = Arr::get($i, 'batch_no');
+            $mfg     = Arr::get($i, 'manufactured_at');
+            $exp     = Arr::get($i, 'expired_at');
 
             if ($batchNo) {
                 $batch = ProductBatch::firstOrCreate(
@@ -202,11 +339,11 @@ class PurchaseService
                 $batchId = $batch->id;
             }
 
-            $warehouseId = Arr::get($i,'warehouse_id', $ret->warehouse_id);
+            $warehouseId = Arr::get($i, 'warehouse_id', $ret->warehouse_id);
 
             PurchaseReturnItem::create([
                 'company_id'        => $ret->company_id,
-                'purchase_return_id'=> $ret->id,
+                'purchase_return_id' => $ret->id,
                 'product_id'        => $product->id,
 
                 'qty_unit_id'       => $qtyUnit->id,
@@ -238,7 +375,7 @@ class PurchaseService
                     'warehouse_id'  => $warehouseId,
                     'batch_id'      => $batchId,
                     'quantity_base' => -1 * $qtyBase,         // -ve
-                    'unit_cost_base'=> $rateBase,
+                    'unit_cost_base' => $rateBase,
                     'document_type' => 'purchase_return',
                     'document_id'   => $ret->id,
                     'meta'          => ['return_no' => $ret->return_no],
@@ -247,7 +384,7 @@ class PurchaseService
             }
 
             $subtotal     = round($subtotal + $lineSub, 4);
-            $discountTotal= round($discountTotal + $discAmt, 4);
+            $discountTotal = round($discountTotal + $discAmt, 4);
         }
 
         return ['subtotal' => $subtotal, 'discount_total' => $discountTotal];
@@ -255,6 +392,6 @@ class PurchaseService
 
     private function isStockTracked(Product $product): bool
     {
-        return in_array($product->product_type, ['Stock','Combo']); // Service/Non-stock typically not tracked
+        return in_array($product->product_type, ['Stock', 'Combo']); // Service/Non-stock typically not tracked
     }
 }

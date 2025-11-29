@@ -10,10 +10,16 @@ class PurchaseBill extends Model
 {
     use SoftDeletes, BelongsToCompany;
 
+    // protected $fillable = [
+    //     'vendor_id','bill_no','bill_date','due_date','warehouse_id','notes',
+    //     'subtotal','discount_total','tax_amount','total_amount',
+    //     'created_by','updated_by'
+    // ];
+
     protected $fillable = [
-        'vendor_id','bill_no','bill_date','due_date','warehouse_id','notes',
-        'subtotal','discount_total','tax_amount','total_amount',
-        'created_by','updated_by'
+        'company_id','vendor_id','bill_no','bill_date','due_date',
+        'warehouse_id','notes','subtotal','discount_total',
+        'tax_amount','total_amount','created_by'
     ];
 
     protected $casts = [
@@ -23,4 +29,9 @@ class PurchaseBill extends Model
 
     public function vendor(){ return $this->belongsTo(Vendor::class); }
     public function items(){ return $this->hasMany(PurchaseBillItem::class); }
+
+    public function payment()
+    {
+        return $this->hasOne(PurchasePayment::class);
+    }
 }

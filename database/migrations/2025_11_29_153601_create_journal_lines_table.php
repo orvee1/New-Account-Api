@@ -13,14 +13,18 @@ return new class extends Migration
     {
         Schema::create('journal_lines', function (Blueprint $table) {
             $table->id();
+            $table->unsignedBigInteger('journal_entry_id');
             $table->unsignedBigInteger('company_id');
-            $table->string('reference')->nullable();
-            $table->date('entry_date');
-            $table->text('description')->nullable();
-            $table->unsignedBigInteger('created_by')->nullable();
+
+            $table->unsignedBigInteger('account_id');
+            $table->decimal('debit', 18, 2)->default(0);
+            $table->decimal('credit', 18, 2)->default(0);
+
+            $table->string('narration')->nullable();
             $table->timestamps();
-            $table->softDeletes();
+             $table->softDeletes();
         });
+
     }
 
     /**

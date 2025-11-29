@@ -31,6 +31,7 @@ class StoreCustomerRequest extends FormRequest
 
             'credit_limit'      => ['nullable','numeric','min:0'],
             'opening_balance'   => ['nullable','numeric','min:0'],
+            'opening_balance_type'   => ['nullable','string','in:debit,credit'],
             'opening_balance_date' => ['nullable','date'],
         ];
     }
@@ -46,6 +47,7 @@ class StoreCustomerRequest extends FormRequest
             'phoneNumber' => 'phone_number',
             'bankDetails' => 'bank_details',
             'openingBalance' => 'opening_balance',
+            'openingBalanceType' => 'opening_balance_type',
             'openingBalanceDate' => 'opening_balance_date',
             'creditLimit' => 'credit_limit',
         ];

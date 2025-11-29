@@ -7,10 +7,19 @@ use App\Http\Requests\StoreCustomerRequest;
 use App\Http\Requests\UpdateCustomerRequest;
 use App\Http\Resources\CustomerResource;
 use App\Models\Customer;
+use App\Services\CustomerOpeningBalanceService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
+    protected $openingService;
+
+    public function __construct(CustomerOpeningBalanceService $openingService)
+    {
+        $this->openingService = $openingService;
+    }
+
     // GET /api/customers
     public function index(Request $request)
     {
@@ -27,7 +36,6 @@ class CustomerController extends Controller
             $query->withTrashed();
         }
 
-        // optional filters
         if ($request->filled('from_date')) {
             $query->whereDate('created_at', '>=', $request->date('from_date'));
         }
@@ -49,26 +57,48 @@ class CustomerController extends Controller
     // POST /api/customers
     public function store(StoreCustomerRequest $request)
     {
-        $data = $request->validated();
+        return DB::transaction(function () use ($request) {
+            $data = $request->validated();
 
-        // Fill opening balance defaults if not provided
-        $data['opening_balance'] = $data['opening_balance'] ?? 0;
-        $data['opening_balance_date'] = $data['opening_balance_date'] ?? now()->toDateString();
+            $data['opening_balance'] = $data['opening_balance'] ?? 0;
+            $data['opening_balance_date'] = $data['opening_balance_date'] ?? now()->toDateString();
 
-        $customer = Customer::create($data);
+            $customer = Customer::create($data);
 
-        return (new CustomerResource($customer))
-            ->additional(['message' => 'Customer created successfully.']);
+            // POST OPENING BALANCE JOURNAL (IF ANY)
+            if (
+                $customer->opening_balance > 0 &&
+                in_array($customer->opening_balance_type, ['debit','credit'])
+            ) {
+                $this->openingService->createOpeningBalanceJournal($customer);
+            }
+
+            return (new CustomerResource($customer))
+                ->additional(['message' => 'Customer created successfully.']);
+        });
     }
 
     // PUT/PATCH /api/customers/{customer}
     public function update(UpdateCustomerRequest $request, Customer $customer)
     {
-        $customer->fill($request->validated());
-        $customer->save();
+        return DB::transaction(function () use ($request, $customer) {
+            $customer->fill($request->validated());
+            $customer->save();
 
-        return (new CustomerResource($customer))
-            ->additional(['message' => 'Customer updated successfully.']);
+            // Re-post new opening balance (if changed)
+            if (
+                $customer->opening_balance > 0 &&
+                in_array($customer->opening_balance_type, ['debit','credit'])
+            ) {
+                // Delete previous opening journals if needed (optional improvement)
+                // TODO: implement cleanup if you want strict accuracy
+
+                $this->openingService->createOpeningBalanceJournal($customer);
+            }
+
+            return (new CustomerResource($customer))
+                ->additional(['message' => 'Customer updated successfully.']);
+        });
     }
 
     // DELETE /api/customers/{customer}

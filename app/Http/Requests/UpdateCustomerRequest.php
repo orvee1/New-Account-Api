@@ -30,6 +30,7 @@ class UpdateCustomerRequest extends FormRequest
 
             // Opening balance fields are locked after create
             'opening_balance'   => ['prohibited'],
+            'opening_balance_type'   => ['prohibited'],
             'opening_balance_date' => ['prohibited'],
         ];
     }
@@ -44,6 +45,7 @@ class UpdateCustomerRequest extends FormRequest
             'phoneNumber' => 'phone_number',
             'bankDetails' => 'bank_details',
             'openingBalance' => 'opening_balance',
+            'openingBalanceType' => 'opening_balance_type',
             'openingBalanceDate' => 'opening_balance_date',
             'creditLimit' => 'credit_limit',
         ];

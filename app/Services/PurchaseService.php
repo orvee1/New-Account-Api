@@ -19,36 +19,6 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseService
 {
-    // public function createBill(array $payload, int $userId): PurchaseBill
-    // {
-    //     $companyId = Auth::user()->company_id;
-
-    //     return DB::transaction(function () use ($payload, $userId, $companyId) {
-    //         /** @var PurchaseBill $bill */
-    //         $bill = PurchaseBill::create([
-    //             'company_id'   => $companyId,
-    //             'vendor_id'    => $payload['vendor_id'],
-    //             'bill_no'      => $payload['bill_no'],
-    //             'bill_date'    => $payload['bill_date'],
-    //             'due_date'     => Arr::get($payload, 'due_date'),
-    //             'warehouse_id' => Arr::get($payload, 'warehouse_id'),
-    //             'notes'        => Arr::get($payload, 'notes'),
-    //             'tax_amount'   => (float) Arr::get($payload, 'tax_amount', 0),
-    //             'created_by'   => $userId,
-    //         ]);
-
-    //         $totals = $this->attachBillItemsAndMovements($bill, $payload['items'], $userId);
-
-    //         $bill->update([
-    //             'subtotal'       => $totals['subtotal'],
-    //             'discount_total' => $totals['discount_total'],
-    //             'total_amount'   => $totals['subtotal'] - $totals['discount_total'] + (float)$bill->tax_amount,
-    //             'updated_by'     => $userId,
-    //         ]);
-
-    //         return $bill->load(['vendor','items.product']);
-    //     });
-    // }
     public function createBill(array $payload, int $userId): PurchaseBill
     {
         $companyId = Auth::user()->company_id;

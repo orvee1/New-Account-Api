@@ -1,26 +1,26 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\Auth\RegisterController;
-use App\Http\Controllers\Api\Auth\LoginController;
-use App\Http\Controllers\Api\Auth\LogoutController;
-use App\Http\Controllers\Api\Auth\ForgotPasswordController;
-use App\Http\Controllers\Api\Auth\ResetPasswordController;
-
-use App\Http\Controllers\Api\CompanyUserController;
-use App\Http\Controllers\Api\ChartAccountController;
-use App\Http\Controllers\Api\ProductController;
-use App\Http\Controllers\Api\CategoryController;
-use App\Http\Controllers\Api\BrandController;
-use App\Http\Controllers\Api\FixedAssetController;
 use App\Http\Controllers\Api\AssetDepreciationController;
 use App\Http\Controllers\Api\AssetDisposalController;
+use App\Http\Controllers\Api\Auth\ForgotPasswordController;
+use App\Http\Controllers\Api\Auth\LoginController;
+use App\Http\Controllers\Api\Auth\LogoutController;
+use App\Http\Controllers\Api\Auth\RegisterController;
+use App\Http\Controllers\Api\Auth\ResetPasswordController;
+use App\Http\Controllers\Api\BrandController;
+use App\Http\Controllers\Api\CategoryController;
+use App\Http\Controllers\Api\ChartAccountController;
+use App\Http\Controllers\Api\CompanyUserController;
+use App\Http\Controllers\Api\CustomerController;
+use App\Http\Controllers\Api\FixedAssetController;
+use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\PurchaseBillController;
+use App\Http\Controllers\Api\PurchaseOrderController;
 use App\Http\Controllers\Api\PurchaseReturnController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\WarehouseController;
-use App\Http\Controllers\Api\CustomerController;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -41,11 +41,11 @@ Route::post('password/reset', [ResetPasswordController::class, 'reset']);
 */
 Route::middleware(['auth:sanctum', 'verified'])->group(function () {
 
-     Route::get('/user', function (Request $request) {
+    Route::get('/user', function (Request $request) {
         /** @var \App\Models\CompanyUser|null $user */
-        $user = $request->user();   // Sanctum token থেকে CompanyUser আসবে
+        $user = $request->user(); // Sanctum token থেকে CompanyUser আসবে
 
-        if (!$user) {
+        if (! $user) {
             return response()->json(['user' => null], 200);
         }
 
@@ -118,4 +118,9 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::apiResource('customers', CustomerController::class);
     Route::post('customers/{customer}/restore', [CustomerController::class, 'restore'])
         ->name('customers.restore');
+
+    // Purchase Routes
+    Route::apiResource('purchase-orders', PurchaseOrderController::class);
+    Route::post('/purchase-orders/{purchaseOrder}/convert-to-bill', [PurchaseOrderController::class, 'convertToBill']);
+
 });

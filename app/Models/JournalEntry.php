@@ -12,8 +12,10 @@ class JournalEntry extends Model
     protected $fillable = [
         'company_id',
         'entry_date',
-        'reference',
+        'reference_id',
+        'reference_type',
         'description',
+        'created_by',
     ];
 
     public function company()

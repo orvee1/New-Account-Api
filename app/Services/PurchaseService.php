@@ -83,7 +83,8 @@ class PurchaseService
             //--------------------------------
             $journalEntry = JournalEntry::create([
                 'company_id' => $companyId,
-                'reference'  => "PB-" . $bill->id,
+                'reference_id'   => $bill->id,
+                'reference_type' => PurchaseBill::class,
                 'entry_date' => $payload['bill_date'],
                 'description' => "Purchase Bill #{$bill->bill_no}",
                 'created_by' => $userId,

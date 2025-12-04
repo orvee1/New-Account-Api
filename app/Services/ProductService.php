@@ -3,12 +3,14 @@
 namespace App\Services;
 
 use App\Models\Product;
+use Auth;
 use Illuminate\Database\Eloquent\Builder;
 
 class ProductService
 {
     public function create(array $data): Product
     {
+        // dd(auth()->user());
         $product = Product::create([
             'company_id'    => auth()->user()->company_id,
             'product_type'  => $data['product_type'],
@@ -17,7 +19,7 @@ class ProductService
             'barcode'       => $data['barcode'] ?? null,
             'category_id'   => $data['category_id'] ?? null,
             'brand_id'      => $data['brand_id'] ?? null,
-            'warehouse_id'  => array_key_exists('warehouse_id', $data) ? $data['warehouse_id'] : $product->warehouse_id,
+            'warehouse_id'  => $data['warehouse_id'] ?? null,
             'unit'          => $data['unit'] ?? null,
             'costing_price' => $data['costing_price'] ?? null,
             'sales_price'   => $data['sales_price'] ?? null,
@@ -30,6 +32,7 @@ class ProductService
             'description'   => $data['description'] ?? null,
             'status'        => $data['status'] ?? 'active',
             'meta'          => $data['meta'] ?? null,
+            'created_by'    => Auth::id(),
         ]);
 
         // units (replace set)
@@ -37,6 +40,7 @@ class ProductService
             $product->units()->delete();
             foreach ($data['units'] as $u) {
                 $product->units()->create([
+                    'company_id'    => auth()->user()->company_id,
                     'name'    => $u['name'],
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
@@ -56,6 +60,8 @@ class ProductService
             $product->comboItems()->delete();
             foreach ($data['combo_items'] as $ci) {
                 $product->comboItems()->create([
+                    'company_id' => auth()->user()->company_id,
+                    'combo_product_id' => $product->id,
                     'item_product_id' => $ci['product_id'],
                     'quantity'        => $ci['quantity'],
                 ]);
@@ -105,6 +111,8 @@ class ProductService
             $product->comboItems()->delete();
             foreach (($data['combo_items'] ?? []) as $ci) {
                 $product->comboItems()->create([
+                    'company_id' => auth()->user()->company_id,
+                    'combo_product_id' => $product->id,
                     'item_product_id' => $ci['product_id'],
                     'quantity'        => $ci['quantity'],
                 ]);

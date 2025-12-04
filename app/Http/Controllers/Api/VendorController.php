@@ -7,7 +7,7 @@ use App\Http\Requests\StoreVendorRequest;
 use App\Http\Requests\UpdateVendorRequest;
 use App\Http\Resources\VendorResource;
 use App\Models\Vendor;
-use App\Services\VentorOpeningBalanceService;
+use App\Services\VendorOpeningBalanceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +19,7 @@ class VendorController extends Controller
      */
     protected $openingService;
 
-    public function __construct(VentorOpeningBalanceService $openingService)
+    public function __construct(VendorOpeningBalanceService $openingService)
     {
         $this->openingService = $openingService;
     }

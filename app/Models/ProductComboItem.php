@@ -7,8 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 class ProductComboItem extends Model
 {
     protected $fillable = [
-        'product_id',       // combo product id
-        'item_product_id',  // component product id
+        'company_id',
+        'combo_product_id',  // combo product id
+        'item_product_id',   // component product id
         'quantity',
     ];
 
@@ -18,7 +19,7 @@ class ProductComboItem extends Model
 
     public function comboProduct()
     {
-        return $this->belongsTo(Product::class, 'product_id');
+        return $this->belongsTo(Product::class, 'combo_product_id');
     }
 
     public function itemProduct()

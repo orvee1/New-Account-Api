@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ProductUnit extends Model
 {
     protected $fillable = [
+        'company_id',
         'product_id',
         'name',
         'factor',

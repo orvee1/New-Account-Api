@@ -10,7 +10,7 @@ use App\Models\Vendor;
 use Illuminate\Container\Attributes\Auth;
 use Illuminate\Support\Facades\DB;
 
-class VentorOpeningBalanceService
+class VendorOpeningBalanceService
 {
     /**
      * Create Opening Balance Journal Entry for Vendor

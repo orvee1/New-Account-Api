@@ -2,16 +2,27 @@
 
 namespace App\Models;
 
-use App\Models\Traits\BelongsToCompany;
 use Illuminate\Database\Eloquent\Model;
 
-class StockMovement extends Model {
-    use BelongsToCompany;
-
+class StockMovement extends Model
+{
     protected $fillable = [
-        'product_id','warehouse_id','product_batch_id',
-        'type','quantity','unit_name','unit_factor_to_base','created_by'
+        'company_id',
+        'product_id',
+        'warehouse_id',
+        'movement_type',
+        'qty_in',
+        'qty_out',
+        'unit_cost',
+        'total_cost',
+        'reference_type',
+        'reference_id',
+        'occurred_at',
+        'created_by',
+        'notes'
     ];
-    protected $casts = ['quantity'=>'decimal:6','unit_factor_to_base'=>'decimal:6'];
 
+    protected $casts = [
+        'occurred_at' => 'datetime',
+    ];
 }

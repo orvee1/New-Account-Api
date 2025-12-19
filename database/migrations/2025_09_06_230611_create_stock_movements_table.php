@@ -5,27 +5,38 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration {
-  public function up(): void {
-    Schema::create('stock_movements', function (Blueprint $t) {
-      $t->id();
-      $t->unsignedBigInteger('company_id')->index();
-      $t->unsignedBigInteger('product_id')->index();
-      $t->unsignedBigInteger('warehouse_id')->index();
-      $t->unsignedBigInteger('product_batch_id')->nullable()->index();
+    public function up(): void
+    {
+        Schema::create('stock_movements', function (Blueprint $table) {
+            $table->id();
 
-      $t->enum('type', [
-        'OPENING','PURCHASE','SALE','ADJUSTMENT','TRANSFER',
-        'ASSEMBLY','DISASSEMBLY'
-      ])->index();
+            $table->foreignId('company_id')->index();
+            $table->foreignId('product_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('warehouse_id')->constrained()->cascadeOnDelete();
 
-      // Positive for inbound, negative for outbound; always in BASE UNIT
-      $t->decimal('quantity', 24, 6);
-      $t->string('unit_name')->nullable();           // original unit (for audit)
-      $t->decimal('unit_factor_to_base', 16, 6)->nullable();
+            // opening, purchase_in, sale_out, adjustment_in, adjustment_out, transfer_in, transfer_out
+            $table->string('movement_type', 50)->index();
 
-      $t->unsignedBigInteger('created_by');
-      $t->timestamps();
-    });
-  }
-  public function down(): void { Schema::dropIfExists('stock_movements'); }
+            $table->decimal('qty_in', 18, 4)->default(0);
+            $table->decimal('qty_out', 18, 4)->default(0);
+
+            $table->decimal('unit_cost', 18, 4)->nullable();
+            $table->decimal('total_cost', 18, 4)->nullable();
+
+            $table->nullableMorphs('reference'); // reference_type + reference_id
+            $table->timestamp('occurred_at')->index();
+
+            $table->foreignId('created_by')->nullable()->index();
+            $table->text('notes')->nullable();
+
+            $table->timestamps();
+
+            $table->index(['company_id', 'product_id', 'warehouse_id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('stock_movements');
+    }
 };

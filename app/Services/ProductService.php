@@ -3,16 +3,25 @@
 namespace App\Services;
 
 use App\Models\Product;
-use Auth;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class ProductService
 {
+    public function __construct(
+        private StockService $stockService,
+        private ProductOpeningStockService $openingStockJournalService
+    ) {}
+
     public function create(array $data): Product
     {
-        // dd(auth()->user());
+        $companyId = auth()->user()->company_id;
+
+        // ✅ FIX: warehouse_id default (no $product reference before create)
+        $warehouseId = array_key_exists('warehouse_id', $data) ? (int)$data['warehouse_id'] : null;
+
         $product = Product::create([
-            'company_id'    => auth()->user()->company_id,
+            'company_id'    => $companyId,
             'product_type'  => $data['product_type'],
             'name'          => $data['name'],
             'sku'           => $data['sku'] ?? null,
@@ -25,13 +34,13 @@ class ProductService
             'sales_price'   => $data['sales_price'] ?? null,
             'tax_percent'   => $data['tax_percent'] ?? null,
 
-            'manufactured_at'   => $data['manufactured_at'] ?? null,
-            'expired_at'   => $data['expired_at'] ?? null,
-            'has_warranty'  => $data['has_warranty'] ?? false,
-            'warranty_days' => $data['warranty_days'] ?? null,
-            'description'   => $data['description'] ?? null,
-            'status'        => $data['status'] ?? 'active',
-            'meta'          => $data['meta'] ?? null,
+            'manufactured_at' => $data['manufactured_at'] ?? null,
+            'expired_at'      => $data['expired_at'] ?? null,
+            'has_warranty'    => $data['has_warranty'] ?? false,
+            'warranty_days'   => $data['warranty_days'] ?? null,
+            'description'     => $data['description'] ?? null,
+            'status'          => $data['status'] ?? 'active',
+            'meta'            => $data['meta'] ?? null,
             'created_by'    => Auth::id(),
         ]);
 
@@ -48,11 +57,31 @@ class ProductService
             }
         }
 
-        // opening stock (only logical record – optional: move to stock module)
+        // ✅ opening stock + warehouse wise stock + journal
         if (($data['product_type'] ?? null) === 'Stock' && !empty($data['opening_quantity'])) {
-            // এখানে তুমি তোমার OpeningStock মডেল/টেবিল থাকলে create করবে।
-            // উদাহরণ:
-            // $product->openingStocks()->create([...]);
+
+            if (!$warehouseId) {
+                // opening qty দিলে warehouse বাধ্যতামূলক হওয়া ভালো
+                throw new \Exception('Warehouse is required when opening_quantity is provided.');
+            }
+
+            $openingQty = (float) $data['opening_quantity'];
+
+            // unit cost priority: opening_unit_cost -> costing_price -> product costing_price
+            $unitCost = (float) (
+                $data['opening_unit_cost']
+                ?? $data['costing_price']
+                ?? $product->costing_price
+                ?? 0
+            );
+
+            $openingDate = $data['opening_date'] ?? null;
+
+            // 1) stock table update + movement create
+            $this->stockService->addOpeningStock($product, $warehouseId, $openingQty, $unitCost, $openingDate);
+
+            // 2) accounting journal (Inventory DR, Opening Balances CR)
+            $this->openingStockJournalService->createOpeningStockJournal($product, $openingQty, $unitCost, $openingDate);
         }
 
         // combo items
@@ -87,19 +116,20 @@ class ProductService
             'costing_price' => $data['costing_price'] ?? $product->costing_price,
             'sales_price'   => $data['sales_price']   ?? $product->sales_price,
             'tax_percent'   => $data['tax_percent']   ?? $product->tax_percent,
-            'manufactured_at'   => $data['manufactured_at'] ?? null,
-            'expired_at'   => $data['expired_at'] ?? null,
-            'has_warranty'  => $data['has_warranty']  ?? $product->has_warranty,
-            'warranty_days' => $data['warranty_days'] ?? $product->warranty_days,
-            'description'   => $data['description']   ?? $product->description,
-            'status'        => $data['status']        ?? $product->status,
-            'meta'          => $data['meta']          ?? $product->meta,
+            'manufactured_at' => $data['manufactured_at'] ?? null,
+            'expired_at'      => $data['expired_at'] ?? null,
+            'has_warranty'    => $data['has_warranty']  ?? $product->has_warranty,
+            'warranty_days'   => $data['warranty_days'] ?? $product->warranty_days,
+            'description'     => $data['description']   ?? $product->description,
+            'status'          => $data['status']        ?? $product->status,
+            'meta'            => $data['meta']          ?? $product->meta,
         ])->save();
 
         if (array_key_exists('units', $data)) {
             $product->units()->delete();
             foreach (($data['units'] ?? []) as $u) {
                 $product->units()->create([
+                    'company_id' => auth()->user()->company_id,
                     'name'    => $u['name'],
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
@@ -126,25 +156,25 @@ class ProductService
     {
         /** @var Builder $q */
         $q = Product::query()->where('company_id', auth()->user()->company_id);
-        $q->with(['units','comboItems.itemProduct']);
+        $q->with(['units', 'comboItems.itemProduct']);
 
         $q->when(!empty($filters['q']), function (Builder $qr) use ($filters) {
             $term = $filters['q'];
             $qr->where(function ($s) use ($term) {
                 $s->where('name', 'like', "%{$term}%")
-                  ->orWhere('sku', 'like', "%{$term}%")
-                  ->orWhere('barcode', 'like', "%{$term}%");
+                    ->orWhere('sku', 'like', "%{$term}%")
+                    ->orWhere('barcode', 'like', "%{$term}%");
             });
         });
 
-        $q->when(!empty($filters['product_type']), fn($qr)=> $qr->where('product_type', $filters['product_type']));
-        $q->when(!empty($filters['category_id']), fn($qr)=> $qr->where('category_id', $filters['category_id']));
-        $q->when(!empty($filters['brand_id']), fn($qr)=> $qr->where('brand_id', $filters['brand_id']));
-        $q->when(!empty($filters['sku']), fn($qr)=> $qr->where('sku', $filters['sku']));
-        $q->when(!empty($filters['barcode']), fn($qr)=> $qr->where('barcode', $filters['barcode']));
-        $q->when(!empty($filters['status']), fn($qr)=> $qr->where('status', $filters['status']));
-        $q->when(!empty($filters['min_price']), fn($qr)=> $qr->where('sales_price', '>=', $filters['min_price']));
-        $q->when(!empty($filters['max_price']), fn($qr)=> $qr->where('sales_price', '<=', $filters['max_price']));
+        $q->when(!empty($filters['product_type']), fn($qr) => $qr->where('product_type', $filters['product_type']));
+        $q->when(!empty($filters['category_id']), fn($qr) => $qr->where('category_id', $filters['category_id']));
+        $q->when(!empty($filters['brand_id']), fn($qr) => $qr->where('brand_id', $filters['brand_id']));
+        $q->when(!empty($filters['sku']), fn($qr) => $qr->where('sku', $filters['sku']));
+        $q->when(!empty($filters['barcode']), fn($qr) => $qr->where('barcode', $filters['barcode']));
+        $q->when(!empty($filters['status']), fn($qr) => $qr->where('status', $filters['status']));
+        $q->when(!empty($filters['min_price']), fn($qr) => $qr->where('sales_price', '>=', $filters['min_price']));
+        $q->when(!empty($filters['max_price']), fn($qr) => $qr->where('sales_price', '<=', $filters['max_price']));
 
         $sort = $filters['sort'] ?? '-created_at';
         if (str_starts_with($sort, '-')) {

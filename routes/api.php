@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\AccountLedgerController;
+use App\Http\Controllers\Api\AccountReconciliationController;
 use App\Http\Controllers\Api\AssetDepreciationController;
 use App\Http\Controllers\Api\AssetDisposalController;
 use App\Http\Controllers\Api\Auth\ForgotPasswordController;
@@ -93,6 +95,16 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         // soft-delete lifecycle
         Route::post('chart-accounts/{chartAccount}/restore', [ChartAccountController::class, 'restore']);
         Route::delete('chart-accounts/{chartAccount}/force', [ChartAccountController::class, 'forceDelete']);
+
+        // Account Ledger
+        Route::get('accounts/{account}/ledger', [AccountLedgerController::class, 'show']);
+
+        // Account Reconciliation
+        Route::get('accounts/{account}/transactions-to-reconcile', [AccountReconciliationController::class, 'getTransactionsToReconcile']);
+        Route::post('accounts/{account}/reconcile', [AccountReconciliationController::class, 'submitReconciliation']);
+        Route::get('accounts/{account}/reconciliation-history', [AccountReconciliationController::class, 'getHistory']);
+        Route::get('accounts/{account}/reconciliations/{reconciliation}', [AccountReconciliationController::class, 'show']);
+        Route::delete('accounts/{account}/reconciliations/{reconciliation}', [AccountReconciliationController::class, 'destroy']);
     });
 
     // Products
@@ -122,5 +134,4 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     // Purchase Routes
     Route::apiResource('purchase-orders', PurchaseOrderController::class);
     Route::post('/purchase-orders/{purchaseOrder}/convert-to-bill', [PurchaseOrderController::class, 'convertToBill']);
-
 });

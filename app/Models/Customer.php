@@ -16,7 +16,7 @@ class Customer extends Model
     protected $casts = [
         'credit_limit'        => 'decimal:2',
         'opening_balance'     => 'decimal:2',
-        'opening_balance_date'=> 'date',
+        'opening_balance_date' => 'date',
     ];
 
     // Always scope by current user's company
@@ -36,7 +36,7 @@ class Customer extends Model
             }
             // default number if not provided
             if (empty($model->customer_number)) {
-                $model->customer_number = 'C'.now()->format('ymd').'-'.substr((string) now()->timestamp, -4);
+                $model->customer_number = 'C' . now()->format('ymd') . '-' . substr((string) now()->timestamp, -4);
             }
         });
 
@@ -53,10 +53,41 @@ class Customer extends Model
         if (!$term) return $q;
         return $q->where(function ($qq) use ($term) {
             $qq->where('name', 'like', "%$term%")
-               ->orWhere('display_name', 'like', "%$term%")
-               ->orWhere('phone_number', 'like', "%$term%")
-               ->orWhere('email', 'like', "%$term%")
-               ->orWhere('customer_number', 'like', "%$term%");
+                ->orWhere('display_name', 'like', "%$term%")
+                ->orWhere('phone_number', 'like', "%$term%")
+                ->orWhere('email', 'like', "%$term%")
+                ->orWhere('customer_number', 'like', "%$term%");
         });
+    }
+
+    // Relationships
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function salesOrders()
+    {
+        return $this->hasMany(SalesOrder::class);
+    }
+
+    public function salesInvoices()
+    {
+        return $this->hasMany(SalesInvoice::class);
+    }
+
+    public function salesReturns()
+    {
+        return $this->hasMany(SalesReturn::class);
+    }
+
+    public function createdByUser()
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function updatedByUser()
+    {
+        return $this->belongsTo(User::class, 'updated_by');
     }
 }

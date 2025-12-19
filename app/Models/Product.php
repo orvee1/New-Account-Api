@@ -42,4 +42,31 @@ class Product extends Model
     {
         return $this->belongsTo(Warehouse::class);
     }
+
+    // Sales relations
+    public function salesOrderItems()
+    {
+        return $this->hasMany(SalesOrderItem::class);
+    }
+
+    public function salesInvoiceItems()
+    {
+        return $this->hasMany(SalesInvoiceItem::class);
+    }
+
+    public function salesReturnItems()
+    {
+        return $this->hasMany(SalesReturnItem::class);
+    }
+
+    // Purchase relations
+    public function purchaseOrderItems()
+    {
+        return $this->hasMany(PurchaseOrderItem::class);
+    }
+
+    public function purchaseBillItems()
+    {
+        return $this->hasMany(PurchaseBillItem::class);
+    }
 }

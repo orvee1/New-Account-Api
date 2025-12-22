@@ -18,7 +18,7 @@ class SalesInvoiceController extends Controller
     {
         $query = SalesInvoice::query()
             ->with(['customer'])
-            ->where('company_id', auth()->user()->company_id)
+            ->where('company_id', auth('sanctum')->user()->company_id)
             ->when($request->filled('q'), function ($q) use ($request) {
                 $keyword = "%{$request->q}%";
                 $q->where('invoice_no', 'like', $keyword)
@@ -43,14 +43,14 @@ class SalesInvoiceController extends Controller
     // POST /api/sales-invoices
     public function store(StoreSalesInvoiceRequest $request)
     {
-        $invoice = $this->service->createInvoice($request->validated(), auth()->id());
+        $invoice = $this->service->createInvoice($request->validated(), auth('sanctum')->user()->id);
         return response()->json(SalesInvoiceResource::make($invoice), 201);
     }
 
     // PUT /api/sales-invoices/{id}
     public function update(StoreSalesInvoiceRequest $request, SalesInvoice $salesInvoice)
     {
-        $invoice = $this->service->updateInvoice($salesInvoice, $request->validated(), auth()->id());
+        $invoice = $this->service->updateInvoice($salesInvoice, $request->validated(), auth('sanctum')->user()->id);
         return SalesInvoiceResource::make($invoice);
     }
 

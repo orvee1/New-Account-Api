@@ -15,13 +15,14 @@ class Vendor extends Model
         'name','display_name','proprietor_name','vendor_number',
         'phone_number','address','nid','email','bank_details',
         'credit_limit','notes',
-        'opening_balance','opening_balance_date',
+        'opening_balance','opening_balance_type','opening_balance_date',
         'custom_fields',
     ];
 
     protected $casts = [
         'credit_limit' => 'decimal:2',
         'opening_balance' => 'decimal:2',
+        'opening_balance_type' => 'string',
         'opening_balance_date' => 'date',
         'custom_fields' => 'array',
     ];

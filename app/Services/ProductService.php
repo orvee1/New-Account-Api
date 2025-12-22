@@ -15,7 +15,7 @@ class ProductService
 
     public function create(array $data): Product
     {
-        $companyId = auth()->user()->company_id;
+        $companyId = auth('sanctum')->user()->company_id;
 
         // ✅ FIX: warehouse_id default (no $product reference before create)
         $warehouseId = array_key_exists('warehouse_id', $data) ? (int)$data['warehouse_id'] : null;
@@ -49,7 +49,7 @@ class ProductService
             $product->units()->delete();
             foreach ($data['units'] as $u) {
                 $product->units()->create([
-                    'company_id'    => auth()->user()->company_id,
+                    'company_id'    => auth('sanctum')->user()->company_id,
                     'name'    => $u['name'],
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
@@ -89,8 +89,7 @@ class ProductService
             $product->comboItems()->delete();
             foreach ($data['combo_items'] as $ci) {
                 $product->comboItems()->create([
-                    'company_id' => auth()->user()->company_id,
-                    'combo_product_id' => $product->id,
+                    'product_id' => $product->id,
                     'item_product_id' => $ci['product_id'],
                     'quantity'        => $ci['quantity'],
                 ]);
@@ -129,7 +128,7 @@ class ProductService
             $product->units()->delete();
             foreach (($data['units'] ?? []) as $u) {
                 $product->units()->create([
-                    'company_id' => auth()->user()->company_id,
+                    'company_id' => auth('sanctum')->user()->company_id,
                     'name'    => $u['name'],
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
@@ -141,8 +140,7 @@ class ProductService
             $product->comboItems()->delete();
             foreach (($data['combo_items'] ?? []) as $ci) {
                 $product->comboItems()->create([
-                    'company_id' => auth()->user()->company_id,
-                    'combo_product_id' => $product->id,
+                    'product_id' => $product->id,
                     'item_product_id' => $ci['product_id'],
                     'quantity'        => $ci['quantity'],
                 ]);
@@ -155,8 +153,9 @@ class ProductService
     public function paginate(array $filters)
     {
         /** @var Builder $q */
-        $q = Product::query()->where('company_id', auth()->user()->company_id);
-        $q->with(['units', 'comboItems.itemProduct']);
+        $q = Product::query()->where('company_id', auth('sanctum')->user()->company_id);
+        // Only load units - comboItems relationship has schema issues
+        $q->with(['units']); // Removed: 'comboItems.itemProduct'
 
         $q->when(!empty($filters['q']), function (Builder $qr) use ($filters) {
             $term = $filters['q'];

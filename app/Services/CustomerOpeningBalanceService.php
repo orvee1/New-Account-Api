@@ -35,6 +35,16 @@ class CustomerOpeningBalanceService
             throw new \Exception('Required chart accounts are missing. Run the ChartAccountSeeder.');
         }
 
+        $existing = JournalEntry::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', Customer::class)
+            ->where('reference_id', $customer->id)
+            ->where('description', 'like', 'Opening balance for customer:%')
+            ->first();
+        if ($existing) {
+            return $existing;
+        }
+
         return DB::transaction(function () use ($customer, $amount, $type, $accountReceivable, $customerAdvance, $openingEquity) {
             $je = JournalEntry::create([
                 'entry_date'       => Carbon::today(),
@@ -49,7 +59,8 @@ class CustomerOpeningBalanceService
             if ($type === 'debit') {
                 JournalLine::create([
                     'journal_entry_id' => $je->id,
-                    'chart_account_id' => $accountReceivable->id,
+                    'company_id' => $customer->company_id,
+                    'account_id' => $accountReceivable->id,
                     'debit' => $amount,
                     'credit' => 0,
                     'narration' => 'Opening balance (DR) - Customer: ' . $customer->name,
@@ -57,7 +68,8 @@ class CustomerOpeningBalanceService
 
                 JournalLine::create([
                     'journal_entry_id' => $je->id,
-                    'chart_account_id' => $openingEquity->id,
+                    'company_id' => $customer->company_id,
+                    'account_id' => $openingEquity->id,
                     'debit' => 0,
                     'credit' => $amount,
                     'narration' => 'Offset opening balance (CR)',
@@ -66,7 +78,8 @@ class CustomerOpeningBalanceService
                 // If opening is CREDIT: We owe customer => Credit Customer Advance (Liability), Debit Opening Balances (Equity)
                 JournalLine::create([
                     'journal_entry_id' => $je->id,
-                    'chart_account_id' => $openingEquity->id,
+                    'company_id' => $customer->company_id,
+                    'account_id' => $openingEquity->id,
                     'debit' => $amount,
                     'credit' => 0,
                     'narration' => 'Offset opening balance (DR)',
@@ -74,7 +87,8 @@ class CustomerOpeningBalanceService
 
                 JournalLine::create([
                     'journal_entry_id' => $je->id,
-                    'chart_account_id' => $customerAdvance->id,
+                    'company_id' => $customer->company_id,
+                    'account_id' => $customerAdvance->id,
                     'debit' => 0,
                     'credit' => $amount,
                     'narration' => 'Opening balance (CR) - Customer: ' . $customer->name,

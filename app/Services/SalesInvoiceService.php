@@ -15,7 +15,7 @@ class SalesInvoiceService
 {
     public function createInvoice(array $payload, int $userId): SalesInvoice
     {
-        $companyId = Auth::user()->company_id;
+        $companyId = Auth::guard('sanctum')->user()->company_id;
 
         return DB::transaction(function () use ($payload, $userId, $companyId) {
             // Create Invoice
@@ -81,7 +81,7 @@ class SalesInvoiceService
     {
         return DB::transaction(function () use ($invoice, $payload) {
             $companyId = $invoice->company_id;
-            $userId = auth()->id();
+            $userId = auth('sanctum')->user()->id;
 
             // Create Return
             $return = SalesReturn::create([
@@ -114,7 +114,7 @@ class SalesInvoiceService
     {
         return DB::transaction(function () use ($invoice, $payload) {
             $companyId = $invoice->company_id;
-            $userId = auth()->id();
+            $userId = auth('sanctum')->user()->id;
 
             // Create Payment
             $payment = SalesPayment::create([
@@ -148,15 +148,15 @@ class SalesInvoiceService
         $taxTotal = 0;
 
         foreach ($items as $item) {
-            $lineTotal = (int)$item['quantity'] * (float)$item['unit_price'];
+            $lineTotal = (int)Arr::get($item, 'quantity', 0) * (float)Arr::get($item, 'unit_price', 0);
             $discountAmount = (float)Arr::get($item, 'discount_amount', 0);
             $taxAmount = (float)Arr::get($item, 'tax_amount', 0);
 
             SalesInvoiceItem::create([
                 'sales_invoice_id' => $invoice->id,
-                'product_id'       => $item['product_id'],
-                'quantity'         => $item['quantity'],
-                'unit_price'       => $item['unit_price'],
+                'product_id'       => Arr::get($item, 'product_id'),
+                'quantity'         => Arr::get($item, 'quantity', 0),
+                'unit_price'       => Arr::get($item, 'unit_price', 0),
                 'discount_amount'  => $discountAmount,
                 'tax_amount'       => $taxAmount,
                 'line_total'       => $lineTotal - $discountAmount + $taxAmount,

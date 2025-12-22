@@ -25,7 +25,7 @@ class Product extends Model
     // For Combo products
     public function comboItems()
     {
-        return $this->hasMany(ProductComboItem::class, 'combo_product_id');
+        return $this->hasMany(ProductComboItem::class, 'product_id');
     }
 
     public function category()

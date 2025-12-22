@@ -7,6 +7,7 @@ use App\Models\ChartAccount;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Models\Vendor;
+use Carbon\Carbon;
 use Illuminate\Container\Attributes\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -35,6 +36,16 @@ class VendorOpeningBalanceService
             throw new \Exception('Required chart accounts are missing. Run the ChartAccountSeeder.');
         }
 
+        $existing = JournalEntry::query()
+            ->where('company_id', $companyId)
+            ->where('reference_type', Vendor::class)
+            ->where('reference_id', $vendor->id)
+            ->where('description', 'like', 'Opening Balance for Vendor:%')
+            ->first();
+        if ($existing) {
+            return $existing;
+        }
+
         return DB::transaction(function () use ($vendor, $amount, $type, $openingBalanceAccount, $vendorAdvanceAccount, $vendorPayableAccount, $companyId) {
 
             // Create Journal Entry (Header)
@@ -42,6 +53,7 @@ class VendorOpeningBalanceService
                 'company_id'       => $companyId,
                 'reference_id'     => $vendor->id,
                 'reference_type'   => Vendor::class,
+                'entry_date'       => $vendor->opening_balance_date ? Carbon::parse($vendor->opening_balance_date) : Carbon::today(),
                 'description'      => "Opening Balance for Vendor: " . $vendor->display_name ?? '',
                 'created_by'       => $vendor->created_by,
             ]);

@@ -71,6 +71,11 @@ class SalesReturnService
 
         $totalAmount = $subtotal - $discountTotal + $taxTotal;
 
-        return compact('subtotal', 'discountTotal', 'taxTotal', 'totalAmount');
+        return [
+            'subtotal' => $subtotal,
+            'discount_total' => $discountTotal,
+            'tax_amount' => $taxTotal,
+            'total_amount' => $totalAmount,
+        ];
     }
 }

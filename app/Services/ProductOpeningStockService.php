@@ -73,7 +73,8 @@ class ProductOpeningStockService
             // DR Inventory
             JournalLine::create([
                 'journal_entry_id' => $je->id,
-                'chart_account_id' => $inventory->id,
+                'company_id'       => $product->company_id,
+                'account_id'       => $inventory->id,
                 'debit'            => $amount,
                 'credit'           => 0,
                 'narration'        => "Opening stock (Qty: {$qty}, UnitCost: {$cost}) - {$product->name}",
@@ -82,7 +83,8 @@ class ProductOpeningStockService
             // CR Opening Balances (Equity)
             JournalLine::create([
                 'journal_entry_id' => $je->id,
-                'chart_account_id' => $openingEquity->id,
+                'company_id'       => $product->company_id,
+                'account_id'       => $openingEquity->id,
                 'debit'            => 0,
                 'credit'           => $amount,
                 'narration'        => 'Offset opening stock (Opening Balances)',

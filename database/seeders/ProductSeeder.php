@@ -64,6 +64,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => true,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 12,
@@ -85,6 +86,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 50,
@@ -106,6 +108,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 100,
@@ -127,6 +130,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => true,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 18,
@@ -148,6 +152,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 80,
@@ -169,6 +174,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => true,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 15,
@@ -190,6 +196,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => true,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 25,
@@ -211,6 +218,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 40,
@@ -232,6 +240,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 30,
@@ -253,6 +262,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => true,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'opening' => [
                     'quantity' => 22,
@@ -273,6 +283,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
             ],
             [
@@ -289,6 +300,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => false,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
             ],
             [
@@ -305,6 +317,7 @@ class ProductSeeder extends Seeder
                     'has_warranty' => true,
                     'company_id' => 1,
                     'status' => 'active',
+                    'created_by' => 1,
                 ],
                 'combo_items' => [
                     ['sku' => 'PROD-001', 'quantity' => 1],

@@ -163,11 +163,11 @@ class VendorOpeningBalanceService
             ->first();
 
         if (!$vendorPayable) {
-            $parent = ChartAccount::where([
-                'slug' => 'ac-payable',
-                'type' => 'group',
-                'company_id' => $companyId,
-            ])->first();
+            $parent = ChartAccount::query()
+                ->where('company_id', $companyId)
+                ->where('type', 'group')
+                ->whereIn('slug', ['ac-payable', 'a-c-payable'])
+                ->first();
 
             if ($parent) {
                 $vendorPayable = ChartAccount::create([

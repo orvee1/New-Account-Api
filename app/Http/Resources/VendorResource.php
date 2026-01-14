@@ -24,6 +24,7 @@ class VendorResource extends JsonResource
             'notes'                => $this->notes,
             'opening_balance'      => (float) $this->opening_balance,
             'opening_balance_date' => optional($this->opening_balance_date)->toDateString(),
+            'chart_account_id'     => $this->chart_account_id,
             'custom_fields'        => $this->custom_fields ?? [],
             'created_by'           => $this->created_by,
             'updated_by'           => $this->updated_by,

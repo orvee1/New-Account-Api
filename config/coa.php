@@ -14,8 +14,15 @@ return [
                 'type' => 'group',
                 'children' => [
                     ['name' => 'Cash',                      'code' => '1.1.1', 'type' => 'group'],
-                    ['name' => 'Bank A/C-Current',          'code' => '1.1.2', 'type' => 'group'],
-                    ['name' => 'Bank A/C-Saving',           'code' => '1.1.3', 'type' => 'group'],
+                    [
+                        'name' => 'Cash at Bank',
+                        'code' => '1.1.2',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Bank A/C-Current',  'code' => '1.1.2.1', 'type' => 'group'],
+                            ['name' => 'Bank A/C-Saving',   'code' => '1.1.2.2', 'type' => 'group'],
+                        ],
+                    ],
                     ['name' => 'Account Receivable',        'code' => '1.1.4', 'type' => 'group'],
                     ['name' => 'Inventory',                 'code' => '1.1.5', 'type' => 'group'],
                     ['name' => 'Short-Term Investments',    'code' => '1.1.6', 'type' => 'group'],

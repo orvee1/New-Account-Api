@@ -24,6 +24,7 @@ class CustomerResource extends JsonResource
             'creditLimit' => (float) $this->credit_limit,
             'openingBalance' => (float) $this->opening_balance,
             'openingBalanceDate' => optional($this->opening_balance_date)->toDateString(),
+            'chartAccountId' => $this->chart_account_id,
             'createdBy' => $this->created_by,
             'updatedBy' => $this->updated_by,
             'deletedAt' => optional($this->deleted_at)?->toISOString(),

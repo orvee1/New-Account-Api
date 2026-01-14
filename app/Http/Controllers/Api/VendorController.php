@@ -7,6 +7,7 @@ use App\Http\Requests\StoreVendorRequest;
 use App\Http\Requests\UpdateVendorRequest;
 use App\Http\Resources\VendorResource;
 use App\Models\Vendor;
+use App\Services\PartyAccountService;
 use App\Services\VendorOpeningBalanceService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -18,10 +19,12 @@ class VendorController extends Controller
      * GET /api/vendors?search=&per_page=20
      */
     protected $openingService;
+    protected $partyAccounts;
 
-    public function __construct(VendorOpeningBalanceService $openingService)
+    public function __construct(VendorOpeningBalanceService $openingService, PartyAccountService $partyAccounts)
     {
         $this->openingService = $openingService;
+        $this->partyAccounts = $partyAccounts;
     }
     public function index(Request $request)
     {
@@ -60,6 +63,12 @@ class VendorController extends Controller
         $data['updated_by'] = $user->id;
 
         $vendor = Vendor::create($data);
+
+        $vendorAccount = $this->partyAccounts->createVendorAccount($vendor);
+        if ($vendorAccount) {
+            $vendor->chart_account_id = $vendorAccount->id;
+            $vendor->saveQuietly();
+        }
 
         // 🔥 CREATE OPENING BALANCE JOURNAL (Vendor)
         if ($vendor->opening_balance > 0 && in_array($vendor->opening_balance_type, ['debit', 'credit'])) {

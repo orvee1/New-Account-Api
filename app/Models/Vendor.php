@@ -17,6 +17,7 @@ class Vendor extends Model
         'credit_limit','notes',
         'opening_balance','opening_balance_type','opening_balance_date',
         'custom_fields',
+        'chart_account_id',
     ];
 
     protected $casts = [

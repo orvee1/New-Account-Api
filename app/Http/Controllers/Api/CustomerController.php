@@ -8,16 +8,19 @@ use App\Http\Requests\UpdateCustomerRequest;
 use App\Http\Resources\CustomerResource;
 use App\Models\Customer;
 use App\Services\CustomerOpeningBalanceService;
+use App\Services\PartyAccountService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class CustomerController extends Controller
 {
     protected $openingService;
+    protected $partyAccounts;
 
-    public function __construct(CustomerOpeningBalanceService $openingService)
+    public function __construct(CustomerOpeningBalanceService $openingService, PartyAccountService $partyAccounts)
     {
         $this->openingService = $openingService;
+        $this->partyAccounts = $partyAccounts;
     }
 
     // GET /api/customers
@@ -64,6 +67,12 @@ class CustomerController extends Controller
             $data['opening_balance_date'] = $data['opening_balance_date'] ?? now()->toDateString();
 
             $customer = Customer::create($data);
+
+            $customerAccount = $this->partyAccounts->createCustomerAccount($customer);
+            if ($customerAccount) {
+                $customer->chart_account_id = $customerAccount->id;
+                $customer->saveQuietly();
+            }
 
             // POST OPENING BALANCE JOURNAL (IF ANY)
             if (

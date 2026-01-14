@@ -5,10 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ChartAccount;
 use App\Models\Contra;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ContraController extends Controller
 {
+    public function __construct(private JournalPostingService $posting) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -56,7 +60,11 @@ class ContraController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['contra_number'] = $validated['contra_number'] ?? ('CONTRA-' . time());
 
-        $contra = Contra::create($validated);
+        $contra = DB::transaction(function () use ($validated) {
+            $contra = Contra::create($validated);
+            $this->postContraJournal($contra);
+            return $contra;
+        });
 
         return response()->json($contra->load(['fromAccount', 'toAccount']), 201);
     }
@@ -91,7 +99,10 @@ class ContraController extends Controller
             return response()->json(['message' => 'Account not found'], 422);
         }
 
-        $contra->update($validated);
+        DB::transaction(function () use ($contra, $validated) {
+            $contra->update($validated);
+            $this->postContraJournal($contra);
+        });
 
         return response()->json($contra->load(['fromAccount', 'toAccount']));
     }
@@ -99,9 +110,43 @@ class ContraController extends Controller
     public function destroy(Contra $contra)
     {
         $this->ensureCompanyAccess($contra->company_id);
-        $contra->delete();
+        DB::transaction(function () use ($contra) {
+            $this->posting->deleteEntries($contra->company_id, Contra::class, $contra->id);
+            $contra->delete();
+        });
 
         return response()->json(['message' => 'Contra entry deleted']);
+    }
+
+    private function postContraJournal(Contra $contra): void
+    {
+        $companyId = $contra->company_id;
+        $amount = (float) $contra->amount;
+
+        $this->posting->deleteEntries($companyId, Contra::class, $contra->id);
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $contra->contra_date,
+            description: "Contra #{$contra->contra_number}",
+            referenceType: Contra::class,
+            referenceId: $contra->id,
+            createdBy: $contra->recorded_by,
+            lines: [
+                [
+                    'account_id' => $contra->to_account_id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Contra Transfer In',
+                ],
+                [
+                    'account_id' => $contra->from_account_id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Contra Transfer Out',
+                ],
+            ]
+        );
     }
 
     private function resolveAccountId(?string $name): ?int

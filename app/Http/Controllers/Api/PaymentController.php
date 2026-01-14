@@ -5,10 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\Vendor;
+use App\Services\AccountMappingService;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class PaymentController extends Controller
 {
+    public function __construct(
+        private AccountMappingService $accountMapping,
+        private JournalPostingService $posting
+    ) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -58,7 +66,11 @@ class PaymentController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['payment_number'] = $validated['payment_number'] ?? ('PAY-' . time());
 
-        $payment = Payment::create($validated);
+        $payment = DB::transaction(function () use ($validated) {
+            $payment = Payment::create($validated);
+            $this->postVendorPaymentJournal($payment);
+            return $payment;
+        });
 
         return response()->json($payment->load('vendor'), 201);
     }
@@ -94,7 +106,10 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Vendor not found'], 422);
         }
 
-        $payment->update($validated);
+        DB::transaction(function () use ($payment, $validated) {
+            $payment->update($validated);
+            $this->postVendorPaymentJournal($payment);
+        });
 
         return response()->json($payment->load('vendor'));
     }
@@ -102,9 +117,56 @@ class PaymentController extends Controller
     public function destroy(Payment $payment)
     {
         $this->ensureCompanyAccess($payment->company_id);
-        $payment->delete();
+        DB::transaction(function () use ($payment) {
+            $this->posting->deleteEntries($payment->company_id, Payment::class, $payment->id);
+            $payment->delete();
+        });
 
         return response()->json(['message' => 'Payment deleted']);
+    }
+
+    private function postVendorPaymentJournal(Payment $payment): void
+    {
+        $companyId = $payment->company_id;
+        $accountsPayable = $this->accountMapping->accountsPayable($companyId);
+        $cashAccount = $this->accountMapping->cash($companyId);
+        $bankAccount = $this->accountMapping->bank($companyId);
+
+        if (!$accountsPayable || !$cashAccount || !$bankAccount) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $this->posting->deleteEntries($companyId, Payment::class, $payment->id);
+
+        $method = strtolower((string) $payment->payment_mode);
+        $creditAccount = in_array($method, ['bank', 'cheque', 'online'], true)
+            ? $bankAccount
+            : $cashAccount;
+
+        $amount = (float) $payment->amount_paid;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $payment->payment_date,
+            description: "Vendor Payment #{$payment->payment_number}",
+            referenceType: Payment::class,
+            referenceId: $payment->id,
+            createdBy: $payment->recorded_by,
+            lines: [
+                [
+                    'account_id' => $accountsPayable->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Accounts Payable',
+                ],
+                [
+                    'account_id' => $creditAccount->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Vendor Payment',
+                ],
+            ]
+        );
     }
 
     private function resolveVendorId(string $name): ?int

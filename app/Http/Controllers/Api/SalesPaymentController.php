@@ -7,11 +7,16 @@ use App\Models\SalesPayment;
 use App\Http\Requests\StoreSalesPaymentRequest;
 use App\Http\Resources\SalesPaymentResource;
 use App\Services\SalesPaymentService;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SalesPaymentController extends Controller
 {
-    public function __construct(private SalesPaymentService $service) {}
+    public function __construct(
+        private SalesPaymentService $service,
+        private JournalPostingService $posting
+    ) {}
 
     // GET /api/sales-payments?q=&sales_invoice_id=&date_from=&date_to=&status=&per_page=20
     public function index(Request $request)
@@ -50,7 +55,10 @@ class SalesPaymentController extends Controller
     // DELETE /api/sales-payments/{id}
     public function destroy(SalesPayment $salesPayment)
     {
-        $salesPayment->delete();
+        DB::transaction(function () use ($salesPayment) {
+            $this->posting->deleteEntries($salesPayment->company_id, SalesPayment::class, $salesPayment->id);
+            $salesPayment->delete();
+        });
         return response()->noContent();
     }
 }

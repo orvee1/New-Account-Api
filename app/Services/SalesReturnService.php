@@ -4,12 +4,19 @@ namespace App\Services;
 
 use App\Models\SalesReturn;
 use App\Models\SalesReturnItem;
+use App\Services\AccountMappingService;
+use App\Services\JournalPostingService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Arr;
 
 class SalesReturnService
 {
+    public function __construct(
+        private AccountMappingService $accountMapping,
+        private JournalPostingService $posting
+    ) {}
+
     public function createReturn(array $payload, int $userId): SalesReturn
     {
         $companyId = Auth::user()->company_id;
@@ -38,8 +45,46 @@ class SalesReturnService
                 'total_amount'    => $totals['total_amount'],
             ]);
 
+            $this->postSalesReturnJournal($return, $userId);
+
             return $return;
         });
+    }
+
+    private function postSalesReturnJournal(SalesReturn $return, int $userId): void
+    {
+        $companyId = $return->company_id;
+        $accountsReceivable = $this->accountMapping->accountsReceivable($companyId);
+        $salesReturn = $this->accountMapping->salesReturn($companyId);
+
+        if (!$accountsReceivable || !$salesReturn) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $amount = (float) $return->total_amount;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $return->return_date,
+            description: "Sales Return #{$return->return_no}",
+            referenceType: SalesReturn::class,
+            referenceId: $return->id,
+            createdBy: $userId,
+            lines: [
+                [
+                    'account_id' => $salesReturn->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Sales Return',
+                ],
+                [
+                    'account_id' => $accountsReceivable->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Accounts Receivable',
+                ],
+            ]
+        );
     }
 
     private function attachReturnItems(SalesReturn $return, array $items): array

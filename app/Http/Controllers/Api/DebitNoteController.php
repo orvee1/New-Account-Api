@@ -5,10 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DebitNote;
 use App\Models\Vendor;
+use App\Services\AccountMappingService;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DebitNoteController extends Controller
 {
+    public function __construct(
+        private AccountMappingService $accountMapping,
+        private JournalPostingService $posting
+    ) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -57,7 +65,11 @@ class DebitNoteController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['debit_note_number'] = $validated['debit_note_number'] ?? ('DBN-' . time());
 
-        $debitNote = DebitNote::create($validated);
+        $debitNote = DB::transaction(function () use ($validated) {
+            $debitNote = DebitNote::create($validated);
+            $this->postDebitNoteJournal($debitNote);
+            return $debitNote;
+        });
 
         return response()->json($debitNote->load('vendor'), 201);
     }
@@ -92,7 +104,10 @@ class DebitNoteController extends Controller
             return response()->json(['message' => 'Vendor not found'], 422);
         }
 
-        $debitNote->update($validated);
+        DB::transaction(function () use ($debitNote, $validated) {
+            $debitNote->update($validated);
+            $this->postDebitNoteJournal($debitNote);
+        });
 
         return response()->json($debitNote->load('vendor'));
     }
@@ -100,9 +115,50 @@ class DebitNoteController extends Controller
     public function destroy(DebitNote $debitNote)
     {
         $this->ensureCompanyAccess($debitNote->company_id);
-        $debitNote->delete();
+        DB::transaction(function () use ($debitNote) {
+            $this->posting->deleteEntries($debitNote->company_id, DebitNote::class, $debitNote->id);
+            $debitNote->delete();
+        });
 
         return response()->json(['message' => 'Debit note deleted']);
+    }
+
+    private function postDebitNoteJournal(DebitNote $debitNote): void
+    {
+        $companyId = $debitNote->company_id;
+        $accountsPayable = $this->accountMapping->accountsPayable($companyId);
+        $inventory = $this->accountMapping->inventory($companyId);
+
+        if (!$accountsPayable || !$inventory) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $this->posting->deleteEntries($companyId, DebitNote::class, $debitNote->id);
+
+        $amount = (float) $debitNote->amount;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $debitNote->note_date,
+            description: "Debit Note #{$debitNote->debit_note_number}",
+            referenceType: DebitNote::class,
+            referenceId: $debitNote->id,
+            createdBy: $debitNote->recorded_by,
+            lines: [
+                [
+                    'account_id' => $accountsPayable->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Accounts Payable',
+                ],
+                [
+                    'account_id' => $inventory->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Purchase Return',
+                ],
+            ]
+        );
     }
 
     private function resolveVendorId(string $name): ?int

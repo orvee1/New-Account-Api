@@ -13,12 +13,19 @@ use App\Models\InventoryMovement;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Models\PurchasePayment;
+use App\Services\AccountMappingService;
+use App\Services\JournalPostingService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class PurchaseService
 {
+    public function __construct(
+        private AccountMappingService $accountMapping,
+        private JournalPostingService $posting
+    ) {}
+
     public function createBill(array $payload, int $userId): PurchaseBill
     {
         $companyId = Auth::user()->company_id;
@@ -90,6 +97,15 @@ class PurchaseService
                 'created_by' => $userId,
             ]);
 
+            $inventoryAccount = $this->accountMapping->inventory($companyId);
+            $cashAccount = $this->accountMapping->cash($companyId);
+            $bankAccount = $this->accountMapping->bank($companyId);
+            $payableAccount = $this->accountMapping->accountsPayable($companyId);
+
+            if (!$inventoryAccount || !$cashAccount || !$bankAccount || !$payableAccount) {
+                throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+            }
+
             //--------------------------------
             // 6. Journal Lines (DR/CR Lines)
             //--------------------------------
@@ -99,7 +115,7 @@ class PurchaseService
                 'journal_entry_id' => $journalEntry->id,
                 'company_id'       => $companyId,
                 // 'account_id'       => coa('inventory'),
-                'account_id'       => config('coa_map.inventory'),
+                'account_id'       => $inventoryAccount->id,
                 'debit'            => $totalAmount,
                 'credit'           => 0,
                 'narration'        => 'Purchase Inventory',
@@ -111,7 +127,7 @@ class PurchaseService
                     'journal_entry_id' => $journalEntry->id,
                     'company_id'       => $companyId,
                     // 'account_id'       => coa('cash'),
-                    'account_id'       => config('coa_map.cash'),
+                    'account_id'       => $cashAccount->id,
                     'debit'            => 0,
                     'credit'           => $cash,
                     'narration'        => 'Cash Payment',
@@ -124,7 +140,7 @@ class PurchaseService
                     'journal_entry_id' => $journalEntry->id,
                     'company_id'       => $companyId,
                     // 'account_id'       => coa('bank'),
-                    'account_id'       => config('coa_map.bank'),
+                    'account_id'       => $bankAccount->id,
                     'debit'            => 0,
                     'credit'           => $bank,
                     'narration'        => 'Bank Payment',
@@ -137,7 +153,7 @@ class PurchaseService
                     'journal_entry_id' => $journalEntry->id,
                     'company_id'       => $companyId,
                     // 'account_id'       => coa('accounts_payable'),
-                    'account_id'       => config('coa_map.accounts_payable'),
+                    'account_id'       => $payableAccount->id,
                     'debit'            => 0,
                     'credit'           => $credit,
                     'narration'        => 'Vendor Credit',
@@ -176,6 +192,36 @@ class PurchaseService
                 'total_amount'   => $totals['subtotal'] - $totals['discount_total'] + (float)$ret->tax_amount,
                 'updated_by'     => $userId,
             ]);
+
+            $inventoryAccount = $this->accountMapping->inventory($companyId);
+            $payableAccount = $this->accountMapping->accountsPayable($companyId);
+
+            if (!$inventoryAccount || !$payableAccount) {
+                throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+            }
+
+            $this->posting->postEntry(
+                companyId: $companyId,
+                entryDate: $ret->return_date,
+                description: "Purchase Return #{$ret->return_no}",
+                referenceType: PurchaseReturn::class,
+                referenceId: $ret->id,
+                createdBy: $userId,
+                lines: [
+                    [
+                        'account_id' => $payableAccount->id,
+                        'debit' => (float) $ret->total_amount,
+                        'credit' => 0,
+                        'narration' => 'Accounts Payable',
+                    ],
+                    [
+                        'account_id' => $inventoryAccount->id,
+                        'debit' => 0,
+                        'credit' => (float) $ret->total_amount,
+                        'narration' => 'Purchase Return',
+                    ],
+                ]
+            );
 
             return $ret->load(['vendor', 'items.product']);
         });

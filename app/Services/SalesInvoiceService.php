@@ -7,12 +7,19 @@ use App\Models\SalesInvoiceItem;
 use App\Models\SalesReturn;
 use App\Models\SalesReturnItem;
 use App\Models\SalesPayment;
+use App\Services\AccountMappingService;
+use App\Services\JournalPostingService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Arr;
 
 class SalesInvoiceService
 {
+    public function __construct(
+        private AccountMappingService $accountMapping,
+        private JournalPostingService $posting
+    ) {}
+
     public function createInvoice(array $payload, int $userId): SalesInvoice
     {
         $companyId = Auth::guard('sanctum')->user()->company_id;
@@ -43,6 +50,8 @@ class SalesInvoiceService
                 'total_amount'    => $totals['total_amount'],
             ]);
 
+            $this->postInvoiceJournal($invoice, $userId);
+
             return $invoice;
         });
     }
@@ -72,6 +81,8 @@ class SalesInvoiceService
                 'tax_amount'      => $totals['tax_amount'],
                 'total_amount'    => $totals['total_amount'],
             ]);
+
+            $this->postInvoiceJournal($invoice, $userId);
 
             return $invoice;
         });
@@ -106,6 +117,8 @@ class SalesInvoiceService
                 'total_amount'    => $totals['total_amount'],
             ]);
 
+            $this->postSalesReturnJournal($return, $userId);
+
             return $return;
         });
     }
@@ -137,8 +150,126 @@ class SalesInvoiceService
                 'status'      => $paidAmount >= $invoice->total_amount ? 'paid' : 'partially_paid',
             ]);
 
+            $this->postSalesPaymentJournal($payment, $userId);
+
             return $payment;
         });
+    }
+
+    private function postInvoiceJournal(SalesInvoice $invoice, int $userId): void
+    {
+        $companyId = $invoice->company_id;
+        $accountsReceivable = $this->accountMapping->accountsReceivable($companyId);
+        $salesRevenue = $this->accountMapping->salesRevenue($companyId);
+
+        if (!$accountsReceivable || !$salesRevenue) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $this->posting->deleteEntries($companyId, SalesInvoice::class, $invoice->id);
+
+        $amount = (float) $invoice->total_amount;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $invoice->invoice_date,
+            description: "Sales Invoice #{$invoice->invoice_no}",
+            referenceType: SalesInvoice::class,
+            referenceId: $invoice->id,
+            createdBy: $userId,
+            lines: [
+                [
+                    'account_id' => $accountsReceivable->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Accounts Receivable',
+                ],
+                [
+                    'account_id' => $salesRevenue->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Sales Revenue',
+                ],
+            ]
+        );
+    }
+
+    private function postSalesReturnJournal(SalesReturn $return, int $userId): void
+    {
+        $companyId = $return->company_id;
+        $accountsReceivable = $this->accountMapping->accountsReceivable($companyId);
+        $salesReturn = $this->accountMapping->salesReturn($companyId);
+
+        if (!$accountsReceivable || !$salesReturn) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $amount = (float) $return->total_amount;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $return->return_date,
+            description: "Sales Return #{$return->return_no}",
+            referenceType: SalesReturn::class,
+            referenceId: $return->id,
+            createdBy: $userId,
+            lines: [
+                [
+                    'account_id' => $salesReturn->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Sales Return',
+                ],
+                [
+                    'account_id' => $accountsReceivable->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Accounts Receivable',
+                ],
+            ]
+        );
+    }
+
+    private function postSalesPaymentJournal(SalesPayment $payment, int $userId): void
+    {
+        $companyId = $payment->company_id;
+        $accountsReceivable = $this->accountMapping->accountsReceivable($companyId);
+        $cashAccount = $this->accountMapping->cash($companyId);
+        $bankAccount = $this->accountMapping->bank($companyId);
+
+        if (!$accountsReceivable || !$cashAccount || !$bankAccount) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $method = strtolower((string) $payment->payment_method);
+        $debitAccount = in_array($method, ['bank', 'cheque', 'online'], true)
+            ? $bankAccount
+            : $cashAccount;
+
+        $amount = (float) $payment->amount;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $payment->payment_date,
+            description: "Sales Payment #{$payment->payment_no}",
+            referenceType: SalesPayment::class,
+            referenceId: $payment->id,
+            createdBy: $userId,
+            lines: [
+                [
+                    'account_id' => $debitAccount->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Customer Payment',
+                ],
+                [
+                    'account_id' => $accountsReceivable->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Accounts Receivable',
+                ],
+            ]
+        );
     }
 
     private function attachInvoiceItems(SalesInvoice $invoice, array $items): array

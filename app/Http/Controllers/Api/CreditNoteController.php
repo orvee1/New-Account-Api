@@ -5,10 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\CreditNote;
 use App\Models\Customer;
+use App\Services\AccountMappingService;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class CreditNoteController extends Controller
 {
+    public function __construct(
+        private AccountMappingService $accountMapping,
+        private JournalPostingService $posting
+    ) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -57,7 +65,11 @@ class CreditNoteController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['credit_note_number'] = $validated['credit_note_number'] ?? ('CRN-' . time());
 
-        $creditNote = CreditNote::create($validated);
+        $creditNote = DB::transaction(function () use ($validated) {
+            $creditNote = CreditNote::create($validated);
+            $this->postCreditNoteJournal($creditNote);
+            return $creditNote;
+        });
 
         return response()->json($creditNote->load('customer'), 201);
     }
@@ -92,7 +104,10 @@ class CreditNoteController extends Controller
             return response()->json(['message' => 'Customer not found'], 422);
         }
 
-        $creditNote->update($validated);
+        DB::transaction(function () use ($creditNote, $validated) {
+            $creditNote->update($validated);
+            $this->postCreditNoteJournal($creditNote);
+        });
 
         return response()->json($creditNote->load('customer'));
     }
@@ -100,9 +115,50 @@ class CreditNoteController extends Controller
     public function destroy(CreditNote $creditNote)
     {
         $this->ensureCompanyAccess($creditNote->company_id);
-        $creditNote->delete();
+        DB::transaction(function () use ($creditNote) {
+            $this->posting->deleteEntries($creditNote->company_id, CreditNote::class, $creditNote->id);
+            $creditNote->delete();
+        });
 
         return response()->json(['message' => 'Credit note deleted']);
+    }
+
+    private function postCreditNoteJournal(CreditNote $creditNote): void
+    {
+        $companyId = $creditNote->company_id;
+        $accountsReceivable = $this->accountMapping->accountsReceivable($companyId);
+        $salesReturn = $this->accountMapping->salesReturn($companyId);
+
+        if (!$accountsReceivable || !$salesReturn) {
+            throw new \Exception('Required chart accounts are missing. Run ChartAccountSeeder.');
+        }
+
+        $this->posting->deleteEntries($companyId, CreditNote::class, $creditNote->id);
+
+        $amount = (float) $creditNote->amount;
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $creditNote->note_date,
+            description: "Credit Note #{$creditNote->credit_note_number}",
+            referenceType: CreditNote::class,
+            referenceId: $creditNote->id,
+            createdBy: $creditNote->recorded_by,
+            lines: [
+                [
+                    'account_id' => $salesReturn->id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Sales Return',
+                ],
+                [
+                    'account_id' => $accountsReceivable->id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Accounts Receivable',
+                ],
+            ]
+        );
     }
 
     private function resolveCustomerId(string $name): ?int

@@ -5,10 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ChartAccount;
 use App\Models\TransactionTransfer;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TransactionTransferController extends Controller
 {
+    public function __construct(private JournalPostingService $posting) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -57,7 +61,11 @@ class TransactionTransferController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['transfer_number'] = $validated['transfer_number'] ?? ('TRF-' . time());
 
-        $transfer = TransactionTransfer::create($validated);
+        $transfer = DB::transaction(function () use ($validated) {
+            $transfer = TransactionTransfer::create($validated);
+            $this->postTransferJournal($transfer);
+            return $transfer;
+        });
 
         return response()->json($transfer->load(['fromAccount', 'toAccount']), 201);
     }
@@ -93,7 +101,10 @@ class TransactionTransferController extends Controller
             return response()->json(['message' => 'Account not found'], 422);
         }
 
-        $transactionTransfer->update($validated);
+        DB::transaction(function () use ($transactionTransfer, $validated) {
+            $transactionTransfer->update($validated);
+            $this->postTransferJournal($transactionTransfer);
+        });
 
         return response()->json($transactionTransfer->load(['fromAccount', 'toAccount']));
     }
@@ -101,9 +112,43 @@ class TransactionTransferController extends Controller
     public function destroy(TransactionTransfer $transactionTransfer)
     {
         $this->ensureCompanyAccess($transactionTransfer->company_id);
-        $transactionTransfer->delete();
+        DB::transaction(function () use ($transactionTransfer) {
+            $this->posting->deleteEntries($transactionTransfer->company_id, TransactionTransfer::class, $transactionTransfer->id);
+            $transactionTransfer->delete();
+        });
 
         return response()->json(['message' => 'Transaction transfer deleted']);
+    }
+
+    private function postTransferJournal(TransactionTransfer $transfer): void
+    {
+        $companyId = $transfer->company_id;
+        $amount = (float) $transfer->amount;
+
+        $this->posting->deleteEntries($companyId, TransactionTransfer::class, $transfer->id);
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $transfer->transfer_date,
+            description: "Transfer #{$transfer->transfer_number}",
+            referenceType: TransactionTransfer::class,
+            referenceId: $transfer->id,
+            createdBy: $transfer->recorded_by,
+            lines: [
+                [
+                    'account_id' => $transfer->to_account_id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => 'Transfer In',
+                ],
+                [
+                    'account_id' => $transfer->from_account_id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => 'Transfer Out',
+                ],
+            ]
+        );
     }
 
     private function resolveAccountId(?string $name): ?int

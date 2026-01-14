@@ -5,10 +5,15 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ChartAccount;
 use App\Models\RecurringTransaction;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class RecurringTransactionController extends Controller
 {
+    public function __construct(private JournalPostingService $posting) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -60,7 +65,11 @@ class RecurringTransactionController extends Controller
         $validated['status'] = $validated['status'] ?? 'active';
         $validated['is_active'] = $validated['is_active'] ?? true;
 
-        $transaction = RecurringTransaction::create($validated);
+        $transaction = DB::transaction(function () use ($validated) {
+            $transaction = RecurringTransaction::create($validated);
+            $this->postRecurringJournal($transaction);
+            return $transaction;
+        });
 
         return response()->json($transaction->load(['fromAccount', 'toAccount']), 201);
     }
@@ -99,7 +108,10 @@ class RecurringTransactionController extends Controller
             return response()->json(['message' => 'Account not found'], 422);
         }
 
-        $recurringTransaction->update($validated);
+        DB::transaction(function () use ($recurringTransaction, $validated) {
+            $recurringTransaction->update($validated);
+            $this->postRecurringJournal($recurringTransaction);
+        });
 
         return response()->json($recurringTransaction->load(['fromAccount', 'toAccount']));
     }
@@ -107,9 +119,46 @@ class RecurringTransactionController extends Controller
     public function destroy(RecurringTransaction $recurringTransaction)
     {
         $this->ensureCompanyAccess($recurringTransaction->company_id);
-        $recurringTransaction->delete();
+        DB::transaction(function () use ($recurringTransaction) {
+            $this->posting->deleteEntries($recurringTransaction->company_id, RecurringTransaction::class, $recurringTransaction->id);
+            $recurringTransaction->delete();
+        });
 
         return response()->json(['message' => 'Recurring transaction deleted']);
+    }
+
+    private function postRecurringJournal(RecurringTransaction $transaction): void
+    {
+        $companyId = $transaction->company_id;
+        $amount = (float) $transaction->amount;
+        $entryDate = $transaction->next_date
+            ?? $transaction->start_date
+            ?? Carbon::today()->toDateString();
+
+        $this->posting->deleteEntries($companyId, RecurringTransaction::class, $transaction->id);
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $entryDate,
+            description: "Recurring Transaction #{$transaction->transaction_number}",
+            referenceType: RecurringTransaction::class,
+            referenceId: $transaction->id,
+            createdBy: $transaction->recorded_by,
+            lines: [
+                [
+                    'account_id' => $transaction->to_account_id,
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => $transaction->description,
+                ],
+                [
+                    'account_id' => $transaction->from_account_id,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => $transaction->description,
+                ],
+            ]
+        );
     }
 
     private function resolveAccountId(?string $name): ?int

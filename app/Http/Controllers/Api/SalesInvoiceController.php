@@ -7,11 +7,16 @@ use App\Models\SalesInvoice;
 use App\Http\Requests\StoreSalesInvoiceRequest;
 use App\Http\Resources\SalesInvoiceResource;
 use App\Services\SalesInvoiceService;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SalesInvoiceController extends Controller
 {
-    public function __construct(private SalesInvoiceService $service) {}
+    public function __construct(
+        private SalesInvoiceService $service,
+        private JournalPostingService $posting
+    ) {}
 
     // GET /api/sales-invoices?q=&customer_id=&date_from=&date_to=&status=&per_page=20
     public function index(Request $request)
@@ -57,7 +62,10 @@ class SalesInvoiceController extends Controller
     // DELETE /api/sales-invoices/{id}
     public function destroy(SalesInvoice $salesInvoice)
     {
-        $salesInvoice->delete();
+        DB::transaction(function () use ($salesInvoice) {
+            $this->posting->deleteEntries($salesInvoice->company_id, SalesInvoice::class, $salesInvoice->id);
+            $salesInvoice->delete();
+        });
         return response()->noContent();
     }
 

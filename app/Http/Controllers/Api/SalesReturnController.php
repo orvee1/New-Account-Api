@@ -7,11 +7,16 @@ use App\Models\SalesReturn;
 use App\Http\Requests\StoreSalesReturnRequest;
 use App\Http\Resources\SalesReturnResource;
 use App\Services\SalesReturnService;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SalesReturnController extends Controller
 {
-    public function __construct(private SalesReturnService $service) {}
+    public function __construct(
+        private SalesReturnService $service,
+        private JournalPostingService $posting
+    ) {}
 
     // GET /api/sales-returns?q=&customer_id=&date_from=&date_to=&per_page=20
     public function index(Request $request)
@@ -49,7 +54,10 @@ class SalesReturnController extends Controller
     // DELETE /api/sales-returns/{id}
     public function destroy(SalesReturn $salesReturn)
     {
-        $salesReturn->delete();
+        DB::transaction(function () use ($salesReturn) {
+            $this->posting->deleteEntries($salesReturn->company_id, SalesReturn::class, $salesReturn->id);
+            $salesReturn->delete();
+        });
         return response()->noContent();
     }
 }

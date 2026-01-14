@@ -5,10 +5,14 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ChartAccount;
 use App\Models\ManualJournal;
+use App\Services\JournalPostingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class ManualJournalController extends Controller
 {
+    public function __construct(private JournalPostingService $posting) {}
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -52,13 +56,20 @@ class ManualJournalController extends Controller
         if (empty($validated['debit_account_id']) || empty($validated['credit_account_id'])) {
             return response()->json(['message' => 'Account not found'], 422);
         }
+        if ((float) $validated['debit_amount'] !== (float) $validated['credit_amount']) {
+            return response()->json(['message' => 'Debit and credit amounts must be equal.'], 422);
+        }
 
         $validated['company_id'] = auth()->user()->company_id;
         $validated['recorded_by'] = auth()->id();
         $validated['status'] = $validated['status'] ?? 'posted';
         $validated['journal_number'] = $validated['journal_number'] ?? ('JNL-' . time());
 
-        $journal = ManualJournal::create($validated);
+        $journal = DB::transaction(function () use ($validated) {
+            $journal = ManualJournal::create($validated);
+            $this->postManualJournal($journal);
+            return $journal;
+        });
 
         return response()->json($journal->load(['debitAccount', 'creditAccount']), 201);
     }
@@ -94,8 +105,14 @@ class ManualJournalController extends Controller
         if (empty($validated['debit_account_id']) || empty($validated['credit_account_id'])) {
             return response()->json(['message' => 'Account not found'], 422);
         }
+        if ((float) $validated['debit_amount'] !== (float) $validated['credit_amount']) {
+            return response()->json(['message' => 'Debit and credit amounts must be equal.'], 422);
+        }
 
-        $manualJournal->update($validated);
+        DB::transaction(function () use ($manualJournal, $validated) {
+            $manualJournal->update($validated);
+            $this->postManualJournal($manualJournal);
+        });
 
         return response()->json($manualJournal->load(['debitAccount', 'creditAccount']));
     }
@@ -103,9 +120,42 @@ class ManualJournalController extends Controller
     public function destroy(ManualJournal $manualJournal)
     {
         $this->ensureCompanyAccess($manualJournal->company_id);
-        $manualJournal->delete();
+        DB::transaction(function () use ($manualJournal) {
+            $this->posting->deleteEntries($manualJournal->company_id, ManualJournal::class, $manualJournal->id);
+            $manualJournal->delete();
+        });
 
         return response()->json(['message' => 'Manual journal deleted']);
+    }
+
+    private function postManualJournal(ManualJournal $journal): void
+    {
+        $companyId = $journal->company_id;
+
+        $this->posting->deleteEntries($companyId, ManualJournal::class, $journal->id);
+
+        $this->posting->postEntry(
+            companyId: $companyId,
+            entryDate: $journal->journal_date,
+            description: "Manual Journal #{$journal->journal_number}",
+            referenceType: ManualJournal::class,
+            referenceId: $journal->id,
+            createdBy: $journal->recorded_by,
+            lines: [
+                [
+                    'account_id' => $journal->debit_account_id,
+                    'debit' => (float) $journal->debit_amount,
+                    'credit' => 0,
+                    'narration' => $journal->narration,
+                ],
+                [
+                    'account_id' => $journal->credit_account_id,
+                    'debit' => 0,
+                    'credit' => (float) $journal->credit_amount,
+                    'narration' => $journal->narration,
+                ],
+            ]
+        );
     }
 
     private function resolveAccountId(?string $name): ?int

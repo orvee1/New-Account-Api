@@ -34,9 +34,9 @@ class DatabaseSeeder extends Seeder
             $this->call(AdminDeviceLogSeeder::class);
         }
 
-        if (class_exists(\Database\Seeders\AccountTypeSeeder::class)) {
-            $this->call(AccountTypeSeeder::class);
-        }
+        // if (class_exists(\Database\Seeders\AccountTypeSeeder::class)) {
+        //     $this->call(AccountTypeSeeder::class);
+        // }
 
         if (class_exists(\Database\Seeders\AccountLedgerSeeder::class)) {
             // Commented out due to reference_id type error

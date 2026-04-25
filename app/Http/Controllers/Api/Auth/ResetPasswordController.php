@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Hash;
 use App\Models\User;
 use App\Services\OTPService;
 
-class ResetpasswordController extends Controller
+class ResetPasswordController extends Controller
 {
     // public function __construct(){
     //     $this->middleware('guest');

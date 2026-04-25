@@ -16,6 +16,7 @@ class ChartAccount extends Model
         'is_active' => 'boolean',
         'depth'     => 'integer',
         'sort_order'=> 'integer',
+        'opening_balance' => 'decimal:2',
     ];
 
     /* ---------------- Relations ---------------- */

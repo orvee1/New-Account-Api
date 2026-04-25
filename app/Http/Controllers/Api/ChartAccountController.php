@@ -45,6 +45,7 @@ class ChartAccountController extends Controller
             'code'      => ['nullable', 'string', 'max:50'],
             'account_no'=> ['nullable', 'string', 'max:50'],
             'opening_balance' => ['nullable', 'numeric'],
+            'opening_balance_type' => ['nullable', 'in:debit,credit'],
             'opening_date' => ['nullable', 'date', 'before_or_equal:today'],
         ]);
 
@@ -71,7 +72,10 @@ class ChartAccountController extends Controller
             $chart->type       = $data['type'];
             $chart->slug       = Str::slug($chart->name);
             $chart->code       = $data['code'] ?? $data['account_no'] ?? null;
-            // code, sort_order, path, depth, created_by ?? model booted() ? handle ???
+            $chart->opening_balance = $data['opening_balance'] ?? 0;
+            $chart->opening_balance_type = $data['opening_balance_type'] ?? null;
+            $chart->opening_date = $data['opening_date'] ?? null;
+            
             $chart->save();
 
             $openingBalance = (float) ($data['opening_balance'] ?? 0);
@@ -80,6 +84,7 @@ class ChartAccountController extends Controller
                     companyId: $company->id,
                     account: $chart,
                     openingBalance: $openingBalance,
+                    openingBalanceType: $data['opening_balance_type'] ?? null,
                     openingDate: $data['opening_date'] ?? null
                 );
             }
@@ -186,6 +191,7 @@ class ChartAccountController extends Controller
         int $companyId,
         ChartAccount $account,
         float $openingBalance,
+        ?string $openingBalanceType = null,
         ?string $openingDate = null
     ): void {
         $amount = round($openingBalance, 2);
@@ -209,11 +215,17 @@ class ChartAccountController extends Controller
             'created_by'     => Auth::id(),
         ]);
 
-        $isDebitNormal = $this->isDebitNormal($account->code ?? '');
+        // If openingBalanceType is provided, use it. Otherwise, guess from code.
+        if ($openingBalanceType) {
+            $isDebit = ($openingBalanceType === 'debit');
+        } else {
+            $isDebit = $this->isDebitNormal($account->code ?? '');
+        }
+
         $positive = $amount > 0;
         $abs = abs($amount);
 
-        if ($isDebitNormal) {
+        if ($isDebit) {
             if ($positive) {
                 $this->postLine($entry->id, $companyId, $account->id, $abs, 0, 'Opening balance');
                 $this->postLine($entry->id, $companyId, $openingAccount->id, 0, $abs, 'Opening balance offset');

@@ -531,7 +531,7 @@ class ReportController extends Controller
 
         $accounts = ChartAccount::query()
             ->whereIn('id', $totals->pluck('account_id'))
-            ->get(['id', 'name', 'code']);
+            ->get(['id', 'name', 'code', 'base_type', 'normal_balance']);
 
         $accountMap = $accounts->keyBy('id');
 
@@ -541,8 +541,11 @@ class ReportController extends Controller
                 'account_id' => $row->account_id,
                 'name' => $account?->name,
                 'code' => $account?->code,
+                'base_type' => $account?->base_type,
+                'normal_balance' => $account?->normal_balance,
                 'debit' => (float) $row->debit,
                 'credit' => (float) $row->credit,
+                'account' => $account,
             ];
         })->all();
     }
@@ -562,14 +565,22 @@ class ReportController extends Controller
 
         $accounts = ChartAccount::query()
             ->whereIn('id', $totals->pluck('account_id'))
-            ->get(['id', 'name', 'code']);
+            ->get(['id', 'name', 'code', 'base_type', 'normal_balance']);
 
         $accountMap = $accounts->keyBy('id');
 
         return $totals->map(function ($row) use ($accountMap) {
             $account = $accountMap->get($row->account_id);
             $code = $account?->code ?? '';
-            $balance = $this->isAssetAccount($code) || $this->isExpenseAccount($code)
+            
+            $isDebitNormal = false;
+            if ($account && $account->normal_balance) {
+                $isDebitNormal = ($account->normal_balance === 'debit');
+            } else {
+                $isDebitNormal = str_starts_with($code, '1') || str_starts_with($code, '5');
+            }
+
+            $balance = $isDebitNormal
                 ? ((float) $row->debit - (float) $row->credit)
                 : ((float) $row->credit - (float) $row->debit);
 
@@ -577,7 +588,10 @@ class ReportController extends Controller
                 'account_id' => $row->account_id,
                 'name' => $account?->name,
                 'code' => $code,
+                'base_type' => $account?->base_type,
+                'normal_balance' => $account?->normal_balance,
                 'balance' => $balance,
+                'account' => $account,
             ];
         })->all();
     }
@@ -589,10 +603,9 @@ class ReportController extends Controller
         $expense = 0;
 
         foreach ($accountTotals as $row) {
-            $code = $row['code'] ?? '';
-            if ($this->isIncomeAccount($code)) {
+            if ($this->isIncomeAccount($row['code'] ?? '', $row['account'] ?? null)) {
                 $income += ($row['credit'] - $row['debit']);
-            } elseif ($this->isExpenseAccount($code)) {
+            } elseif ($this->isExpenseAccount($row['code'] ?? '', $row['account'] ?? null)) {
                 $expense += ($row['debit'] - $row['credit']);
             }
         }
@@ -606,8 +619,7 @@ class ReportController extends Controller
         $sum = 0;
 
         foreach ($accountTotals as $row) {
-            $code = $row['code'] ?? '';
-            if (! $this->isExpenseAccount($code)) {
+            if (! $this->isExpenseAccount($row['code'] ?? '', $row['account'] ?? null)) {
                 continue;
             }
             $name = strtolower($row['name'] ?? '');
@@ -648,12 +660,26 @@ class ReportController extends Controller
         foreach ($balances as $row) {
             $code = $row['code'] ?? '';
             $name = strtolower($row['name'] ?? '');
+            $account = $row['account'] ?? null;
             $match = false;
 
             foreach ($codePrefixes as $prefix) {
                 if (str_starts_with($code, $prefix)) {
                     $match = true;
                     break;
+                }
+            }
+
+            if (! $match) {
+                // Check base_type as well
+                if ($account && $account->base_type) {
+                    foreach ($codePrefixes as $prefix) {
+                        if ($prefix == '1' && $account->base_type == 'asset') $match = true;
+                        if ($prefix == '2' && $account->base_type == 'liability') $match = true;
+                        if ($prefix == '3' && $account->base_type == 'equity') $match = true;
+                        if ($prefix == '4' && $account->base_type == 'income') $match = true;
+                        if ($prefix == '5' && $account->base_type == 'expense') $match = true;
+                    }
                 }
             }
 
@@ -679,28 +705,43 @@ class ReportController extends Controller
         return $this->balanceForAccounts($companyId, $asOfDate, ['1.1.1', '1.1.2', '1.1.3'], ['cash', 'bank']);
     }
 
-    private function isAssetAccount(string $code): bool
+    private function isAssetAccount(string $code, ?ChartAccount $account = null): bool
     {
+        if ($account && $account->base_type) {
+            return $account->base_type === 'asset';
+        }
         return str_starts_with($code, '1');
     }
 
-    private function isLiabilityAccount(string $code): bool
+    private function isLiabilityAccount(string $code, ?ChartAccount $account = null): bool
     {
+        if ($account && $account->base_type) {
+            return $account->base_type === 'liability';
+        }
         return str_starts_with($code, '2');
     }
 
-    private function isEquityAccount(string $code): bool
+    private function isEquityAccount(string $code, ?ChartAccount $account = null): bool
     {
+        if ($account && $account->base_type) {
+            return $account->base_type === 'equity';
+        }
         return str_starts_with($code, '3');
     }
 
-    private function isIncomeAccount(string $code): bool
+    private function isIncomeAccount(string $code, ?ChartAccount $account = null): bool
     {
+        if ($account && $account->base_type) {
+            return $account->base_type === 'income';
+        }
         return str_starts_with($code, '4');
     }
 
-    private function isExpenseAccount(string $code): bool
+    private function isExpenseAccount(string $code, ?ChartAccount $account = null): bool
     {
+        if ($account && $account->base_type) {
+            return $account->base_type === 'expense';
+        }
         return str_starts_with($code, '5');
     }
 

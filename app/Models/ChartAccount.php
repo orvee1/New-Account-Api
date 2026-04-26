@@ -200,6 +200,38 @@ class ChartAccount extends Model
                 }
                 $model->code = $model->generateCode();
             }
+
+            // Inherit base_type and normal_balance from parent
+            if ($model->parent_id) {
+                if (!$model->relationLoaded('parent')) {
+                    $model->load('parent');
+                }
+                if ($model->parent) {
+                    $model->base_type = $model->base_type ?? $model->parent->base_type;
+                    $model->normal_balance = $model->normal_balance ?? $model->parent->normal_balance;
+                }
+            } else {
+                // For root accounts, set based on code if not provided
+                if (empty($model->base_type) || empty($model->normal_balance)) {
+                    $code = $model->code ?? '';
+                    if (str_starts_with($code, '1')) {
+                        $model->base_type = 'asset';
+                        $model->normal_balance = 'debit';
+                    } elseif (str_starts_with($code, '2')) {
+                        $model->base_type = 'liability';
+                        $model->normal_balance = 'credit';
+                    } elseif (str_starts_with($code, '3')) {
+                        $model->base_type = 'equity';
+                        $model->normal_balance = 'credit';
+                    } elseif (str_starts_with($code, '4')) {
+                        $model->base_type = 'income';
+                        $model->normal_balance = 'credit';
+                    } elseif (str_starts_with($code, '5')) {
+                        $model->base_type = 'expense';
+                        $model->normal_balance = 'debit';
+                    }
+                }
+            }
         });
 
         // updating → শুধু updated_by আপডেট

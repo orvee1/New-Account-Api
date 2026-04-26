@@ -151,7 +151,7 @@ class ChartAccountController extends Controller
         $accounts = ChartAccount::query()
             ->where('company_id', $companyId)
             ->whereIn('id', $totals->pluck('account_id'))
-            ->get(['id', 'code'])
+            ->get(['id', 'code', 'normal_balance'])
             ->keyBy('id');
 
         $balances = [];
@@ -159,8 +159,8 @@ class ChartAccountController extends Controller
             $accountId = (int) $row->account_id;
             $debit = (float) $row->debit;
             $credit = (float) $row->credit;
-            $code = $accounts->get($accountId)?->code ?? '';
-            $balances[$accountId] = $this->isDebitNormal($code)
+            $account = $accounts->get($accountId);
+            $balances[$accountId] = $this->isDebitNormal($account)
                 ? ($debit - $credit)
                 : ($credit - $debit);
         }
@@ -215,11 +215,11 @@ class ChartAccountController extends Controller
             'created_by'     => Auth::id(),
         ]);
 
-        // If openingBalanceType is provided, use it. Otherwise, guess from code.
+        // If openingBalanceType is provided, use it. Otherwise, guess from account metadata.
         if ($openingBalanceType) {
             $isDebit = ($openingBalanceType === 'debit');
         } else {
-            $isDebit = $this->isDebitNormal($account->code ?? '');
+            $isDebit = $this->isDebitNormal($account);
         }
 
         $positive = $amount > 0;
@@ -294,8 +294,18 @@ class ChartAccountController extends Controller
         return $opening;
     }
 
-    private function isDebitNormal(string $code): bool
+    private function isDebitNormal(?ChartAccount $account): bool
     {
+        if (!$account) {
+            return true;
+        }
+        
+        if ($account->normal_balance) {
+            return $account->normal_balance === 'debit';
+        }
+
+        // Fallback to code if metadata is missing
+        $code = $account->code ?? '';
         return str_starts_with($code, '1') || str_starts_with($code, '5');
     }
 

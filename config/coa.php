@@ -23,9 +23,15 @@ return [
                             ['name' => 'Bank A/C-Saving',   'code' => '1.1.2.2', 'type' => 'group'],
                         ],
                     ],
-                    ['name' => 'Account Receivable',        'code' => '1.1.4', 'type' => 'group'],
-                    ['name' => 'Inventory',                 'code' => '1.1.5', 'type' => 'group'],
-                    ['name' => 'Short-Term Investments',    'code' => '1.1.6', 'type' => 'group'],
+                    [
+                        'name' => 'Account Receivable',
+                        'code' => '1.1.4',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Customer Receivable', 'code' => '1.1.4.1', 'type' => 'group'],
+                        ]
+                    ],     
+                    ['name' => 'Inventory',                 'code' => '1.1.5', 'type' => 'group'],                         ['name' => 'Short-Term Investments',    'code' => '1.1.6', 'type' => 'group'],
                     ['name' => 'Prepaid Expenses',          'code' => '1.1.7', 'type' => 'group'],
                     ['name' => 'Loans & Advances',          'code' => '1.1.8', 'type' => 'group'],
                     ['name' => 'Other Current Assets',      'code' => '1.1.9', 'type' => 'group'],
@@ -79,7 +85,14 @@ return [
                 'code' => '2.1',
                 'type' => 'group',
                 'children' => [
-                    ['name' => 'A/C Payable',                         'code' => '2.1.1', 'type' => 'group'],
+                    [
+                        'name' => 'A/C Payable',
+                        'code' => '2.1.1',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Vendor Payable', 'code' => '2.1.1.1', 'type' => 'group'],
+                        ]
+                    ],
                     ['name' => 'Short-term Loan',                     'code' => '2.1.2', 'type' => 'group'],
                     ['name' => 'Accrued Expenses',                    'code' => '2.1.3', 'type' => 'group'],
                     ['name' => 'Credit Card',                         'code' => '2.1.4', 'type' => 'group'],

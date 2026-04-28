@@ -17,6 +17,7 @@ class JournalLine extends Model
         'debit',
         'credit',
         'memo',
+        'is_reconciled',
     ];
 
     protected static function booted()

@@ -24,53 +24,51 @@ class AccountReconciliationController extends Controller
             return response()->json(['message' => 'Account not found'], 404);
         }
 
-        $startDate = $request->query('start_date');
-        $endDate = $request->query('end_date');
+        $endDate = $request->query('end_date') ?? Carbon::now()->toDateString();
 
-        // Default: last 7 days
-        if (!$startDate) {
-            $startDate = Carbon::now()->subDays(7)->toDateString();
-        }
-        if (!$endDate) {
-            $endDate = Carbon::now()->toDateString();
-        }
+        // 1. Get Beginning Balance (Ending balance of last reconciliation)
+        $lastReconciliation = AccountReconciliation::where('company_id', $company->id)
+            ->where('account_id', $account->id)
+            ->where('status', 'completed')
+            ->orderBy('reconciliation_date', 'desc')
+            ->orderBy('id', 'desc')
+            ->first();
 
-        // Get all transactions for the account
+        $beginningBalance = $lastReconciliation ? $lastReconciliation->ending_balance : $this->getAccountOpeningBalanceValue($account);
+
+        // 2. Get Unreconciled Transactions up to end_date
         $transactions = JournalLine::where('company_id', $company->id)
             ->where('account_id', $account->id)
+            ->where('is_reconciled', false)
+            ->whereHas('journalEntry', function($q) use ($endDate) {
+                $q->where('entry_date', '<=', $endDate);
+            })
             ->with('journalEntry')
-            ->whereBetween('created_at', [
-                Carbon::parse($startDate)->startOfDay(),
-                Carbon::parse($endDate)->endOfDay()
-            ])
-            ->orderBy('created_at', 'asc')
             ->get();
 
-        // Calculate running balance
-        $runningBalance = 0;
-        $transactionData = $transactions->map(function ($line) use (&$runningBalance) {
-            $debit = (float) $line->debit ?? 0;
-            $credit = (float) $line->credit ?? 0;
-            $runningBalance += ($debit - $credit);
-
+        $transactionData = $transactions->map(function ($line) {
             return [
                 'id' => $line->id,
                 'date' => $line->journalEntry->entry_date ?? $line->created_at->toDateString(),
                 'description' => $line->journalEntry->description ?? 'Journal Entry',
                 'reference_id' => $line->journalEntry->reference_id,
                 'reference_type' => $line->journalEntry->reference_type,
-                'debit' => round($debit, 2),
-                'credit' => round($credit, 2),
-                'balance' => round($runningBalance, 2),
+                'debit' => round((float)$line->debit, 2),
+                'credit' => round((float)$line->credit, 2),
                 'memo' => $line->memo,
-                'is_reconciled' => $line->is_reconciled ?? false,
             ];
         });
 
-        // Opening balance
-        $openingBalance = $transactions->isEmpty() ? 0 : -$transactions->sum(function ($line) {
-            return ($line->debit ?? 0) - ($line->credit ?? 0);
-        });
+        // 3. Calculate Book Balance as of end_date
+        $opening = $this->getAccountOpeningBalanceValue($account);
+        $netMovement = JournalLine::where('account_id', $account->id)
+            ->whereHas('journalEntry', function($q) use ($endDate) {
+                $q->where('entry_date', '<=', $endDate);
+            })
+            ->select(DB::raw('SUM(debit) - SUM(credit) as net'))
+            ->first()->net ?? 0;
+        
+        $bookBalance = $opening + (float)$netMovement;
 
         return response()->json([
             'success' => true,
@@ -81,15 +79,23 @@ class AccountReconciliationController extends Controller
                 'type' => $account->type,
             ],
             'period' => [
-                'start_date' => $startDate,
                 'end_date' => $endDate,
             ],
             'balances' => [
-                'opening_balance' => round($openingBalance, 2),
-                'closing_balance' => round($runningBalance, 2),
+                'beginning_balance' => round((float)$beginningBalance, 2),
+                'book_balance' => round((float)$bookBalance, 2),
             ],
             'transactions' => $transactionData,
         ]);
+    }
+
+    private function getAccountOpeningBalanceValue($account)
+    {
+        $val = (float)($account->opening_balance ?? 0);
+        if ($account->opening_balance_type === 'credit') {
+            return -$val;
+        }
+        return $val;
     }
 
     /**

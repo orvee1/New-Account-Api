@@ -104,6 +104,12 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('chart-accounts', [ChartAccountController::class, 'index']);
         Route::post('chart-accounts', [ChartAccountController::class, 'store']);
 
+        // Advanced COA Features
+        Route::post('chart-accounts/merge', [ChartAccountController::class, 'merge']);
+        Route::get('chart-accounts/export', [ChartAccountController::class, 'export']);
+        Route::post('chart-accounts/import', [ChartAccountController::class, 'import']);
+        Route::get('chart-accounts/template', [ChartAccountController::class, 'getTemplate']);
+
         // show / update / delete নির্দিষ্ট নোডের জন্য
         Route::get('chart-accounts/{chartAccount}', [ChartAccountController::class, 'show']);
         Route::put('chart-accounts/{chartAccount}', [ChartAccountController::class, 'update']);

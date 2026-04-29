@@ -2,7 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Http\Requests\MergeAccountRequest;
 use App\Http\Controllers\Controller;
+use App\Exports\ChartAccountExport;
+use App\Imports\ChartAccountImport;
+use Maatwebsite\Excel\Facades\Excel;
 use App\Models\ChartAccount;
 use App\Models\Company;
 use App\Models\JournalEntry;
@@ -44,9 +48,12 @@ class ChartAccountController extends Controller
             'parent_id' => ['nullable', 'exists:chart_accounts,id'],
             'code'      => ['nullable', 'string', 'max:50'],
             'account_no'=> ['nullable', 'string', 'max:50'],
+            'base_type' => ['nullable', 'in:asset,liability,equity,income,expense'],
+            'normal_balance' => ['nullable', 'in:debit,credit'],
             'opening_balance' => ['nullable', 'numeric'],
             'opening_balance_type' => ['nullable', 'in:debit,credit'],
             'opening_date' => ['nullable', 'date', 'before_or_equal:today'],
+            'is_active' => ['nullable', 'boolean'],
         ]);
 
         // parent এই company-এর কিনা check
@@ -62,6 +69,13 @@ class ChartAccountController extends Controller
                     'message' => 'Ledger এর নিচে আর group/ledger তৈরি করা যাবে না।'
                 ], 422);
             }
+
+            // Ensure base_type matches parent if provided
+            if (isset($data['base_type']) && $parent->base_type && $data['base_type'] !== $parent->base_type) {
+                return response()->json([
+                    'message' => "Base type must match parent's base type ({$parent->base_type})."
+                ], 422);
+            }
         }
 
         return DB::transaction(function () use ($data, $company) {
@@ -72,9 +86,12 @@ class ChartAccountController extends Controller
             $chart->type       = $data['type'];
             $chart->slug       = Str::slug($chart->name);
             $chart->code       = $data['code'] ?? $data['account_no'] ?? null;
+            $chart->base_type  = $data['base_type'] ?? null;
+            $chart->normal_balance = $data['normal_balance'] ?? null;
             $chart->opening_balance = $data['opening_balance'] ?? 0;
             $chart->opening_balance_type = $data['opening_balance_type'] ?? null;
             $chart->opening_date = $data['opening_date'] ?? null;
+            $chart->is_active = $data['is_active'] ?? true;
             
             $chart->save();
 
@@ -112,6 +129,8 @@ class ChartAccountController extends Controller
             'code'       => ['sometimes', 'string', 'max:255'],
             'sort_order' => ['sometimes', 'integer'],
             'is_active'  => ['sometimes', 'boolean'],
+            'base_type'  => ['sometimes', 'in:asset,liability,equity,income,expense'],
+            'normal_balance' => ['sometimes', 'in:debit,credit'],
         ]);
 
         if (array_key_exists('name', $data)) {
@@ -129,10 +148,147 @@ class ChartAccountController extends Controller
     {
         abort_if($chartAccount->company_id !== $company->id, 404);
 
-        // চাইলে soft delete করতে পারো; এখন simple delete
+        // Check if has children
+        if ($chartAccount->children()->count() > 0) {
+            return response()->json([
+                'message' => 'Cannot delete an account that has sub-accounts.'
+            ], 422);
+        }
+
+        // Check if has transactions
+        if (JournalLine::where('account_id', $chartAccount->id)->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete an account that has transactions. Deactivate it instead.'
+            ], 422);
+        }
+
         $chartAccount->delete();
 
         return response()->json(['message' => 'Deleted successfully']);
+    }
+
+    // POST /api/companies/{company}/chart-accounts/merge
+    public function merge(MergeAccountRequest $request, Company $company)
+    {
+        $source = ChartAccount::where('company_id', $company->id)->findOrFail($request->source_account_id);
+        $target = ChartAccount::where('company_id', $company->id)->findOrFail($request->target_account_id);
+
+        if ($source->type !== 'ledger' || $target->type !== 'ledger') {
+            return response()->json(['message' => 'Both accounts must be ledger accounts to merge.'], 422);
+        }
+
+        if ($source->base_type !== $target->base_type) {
+            return response()->json(['message' => 'Accounts must have the same base type to merge.'], 422);
+        }
+
+        DB::transaction(function () use ($source, $target) {
+            // Move all journal lines
+            JournalLine::where('account_id', $source->id)
+                ->update(['account_id' => $target->id]);
+            
+            // Delete source account
+            $source->delete();
+        });
+
+        return response()->json(['message' => 'Accounts merged successfully.']);
+    }
+
+    // GET /api/companies/{company}/chart-accounts/export
+    public function export(Company $company)
+    {
+        return Excel::download(new ChartAccountExport($company->id), 'chart_of_accounts.xlsx');
+    }
+
+    // POST /api/companies/{company}/chart-accounts/import
+    public function import(Request $request, Company $company)
+    {
+        $request->validate([
+            'file' => 'required|mimes:xlsx,csv,xls',
+        ]);
+
+        Excel::import(new ChartAccountImport($company->id), $request->file('file'));
+
+        return response()->json(['message' => 'Accounts imported successfully.']);
+    }
+
+    /**
+     * Get a standard template for Chart of Accounts
+     */
+    public function getTemplate()
+    {
+        return response()->json([
+            [
+                'name' => 'Assets',
+                'type' => 'group',
+                'base_type' => 'asset',
+                'normal_balance' => 'debit',
+                'children' => [
+                    ['name' => 'Current Assets', 'type' => 'group', 'children' => [
+                        ['name' => 'Cash and Bank', 'type' => 'group', 'children' => [
+                            ['name' => 'Petty Cash', 'type' => 'ledger'],
+                            ['name' => 'Main Bank Account', 'type' => 'ledger'],
+                        ]],
+                        ['name' => 'Accounts Receivable', 'type' => 'ledger'],
+                        ['name' => 'Inventory', 'type' => 'ledger'],
+                    ]],
+                    ['name' => 'Fixed Assets', 'type' => 'group', 'children' => [
+                        ['name' => 'Furniture & Fixtures', 'type' => 'ledger'],
+                        ['name' => 'Office Equipment', 'type' => 'ledger'],
+                    ]],
+                ]
+            ],
+            [
+                'name' => 'Liabilities',
+                'type' => 'group',
+                'base_type' => 'liability',
+                'normal_balance' => 'credit',
+                'children' => [
+                    ['name' => 'Current Liabilities', 'type' => 'group', 'children' => [
+                        ['name' => 'Accounts Payable', 'type' => 'ledger'],
+                        ['name' => 'Accrued Expenses', 'type' => 'ledger'],
+                    ]],
+                    ['name' => 'Long-term Liabilities', 'type' => 'group', 'children' => [
+                        ['name' => 'Bank Loan', 'type' => 'ledger'],
+                    ]],
+                ]
+            ],
+            [
+                'name' => 'Equity',
+                'type' => 'group',
+                'base_type' => 'equity',
+                'normal_balance' => 'credit',
+                'children' => [
+                    ['name' => 'Owner\'s Capital', 'type' => 'ledger'],
+                    ['name' => 'Retained Earnings', 'type' => 'ledger'],
+                ]
+            ],
+            [
+                'name' => 'Income',
+                'type' => 'group',
+                'base_type' => 'income',
+                'normal_balance' => 'credit',
+                'children' => [
+                    ['name' => 'Sales Revenue', 'type' => 'ledger'],
+                    ['name' => 'Service Income', 'type' => 'ledger'],
+                    ['name' => 'Other Income', 'type' => 'ledger'],
+                ]
+            ],
+            [
+                'name' => 'Expenses',
+                'type' => 'group',
+                'base_type' => 'expense',
+                'normal_balance' => 'debit',
+                'children' => [
+                    ['name' => 'Operating Expenses', 'type' => 'group', 'children' => [
+                        ['name' => 'Salaries & Wages', 'type' => 'ledger'],
+                        ['name' => 'Rent Expense', 'type' => 'ledger'],
+                        ['name' => 'Utilities Expense', 'type' => 'ledger'],
+                        ['name' => 'Office Supplies', 'type' => 'ledger'],
+                    ]],
+                    ['name' => 'Cost of Goods Sold', 'type' => 'ledger'],
+                ]
+            ]
+        ]);
     }
 
 

@@ -6,12 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\SalesInvoice;
 use App\Http\Requests\StoreSalesInvoiceRequest;
 use App\Http\Resources\SalesInvoiceResource;
+use App\Services\AccountingPostingService;
 use App\Services\SalesInvoiceService;
 use Illuminate\Http\Request;
 
 class SalesInvoiceController extends Controller
 {
-    public function __construct(private SalesInvoiceService $service) {}
+    public function __construct(
+        private SalesInvoiceService $service,
+        private AccountingPostingService $postingService
+    ) {}
 
     // GET /api/sales-invoices?q=&customer_id=&date_from=&date_to=&status=&per_page=20
     public function index(Request $request)
@@ -36,6 +40,7 @@ class SalesInvoiceController extends Controller
     // GET /api/sales-invoices/{id}
     public function show(SalesInvoice $salesInvoice)
     {
+        $this->ensureModelCompany($salesInvoice);
         $salesInvoice->load(['customer', 'items.product', 'payments']);
         return SalesInvoiceResource::make($salesInvoice);
     }
@@ -50,6 +55,7 @@ class SalesInvoiceController extends Controller
     // PUT /api/sales-invoices/{id}
     public function update(StoreSalesInvoiceRequest $request, SalesInvoice $salesInvoice)
     {
+        $this->ensureModelCompany($salesInvoice);
         $invoice = $this->service->updateInvoice($salesInvoice, $request->validated(), auth('sanctum')->user()->id);
         return SalesInvoiceResource::make($invoice);
     }
@@ -57,6 +63,8 @@ class SalesInvoiceController extends Controller
     // DELETE /api/sales-invoices/{id}
     public function destroy(SalesInvoice $salesInvoice)
     {
+        $this->ensureModelCompany($salesInvoice);
+        $this->postingService->deleteForReference($salesInvoice->company_id, SalesInvoice::class, $salesInvoice->id);
         $salesInvoice->delete();
         return response()->noContent();
     }
@@ -64,6 +72,7 @@ class SalesInvoiceController extends Controller
     // POST /api/sales-invoices/{id}/create-return
     public function createReturn(Request $request, SalesInvoice $salesInvoice)
     {
+        $this->ensureModelCompany($salesInvoice);
         $return = $this->service->createReturn($salesInvoice, $request->all());
         return response()->json([
             'message' => 'Sales Return created successfully',
@@ -74,6 +83,7 @@ class SalesInvoiceController extends Controller
     // POST /api/sales-invoices/{id}/record-payment
     public function recordPayment(Request $request, SalesInvoice $salesInvoice)
     {
+        $this->ensureModelCompany($salesInvoice);
         $payment = $this->service->recordPayment($salesInvoice, $request->all());
         return response()->json([
             'message' => 'Payment recorded successfully',

@@ -15,6 +15,7 @@ class CreditNote extends Model
         'company_id',
         'credit_note_number',
         'customer_id',
+        'debit_account_id',
         'invoice_reference',
         'note_date',
         'reason',
@@ -46,5 +47,10 @@ class CreditNote extends Model
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function debitAccount()
+    {
+        return $this->belongsTo(ChartAccount::class, 'debit_account_id');
     }
 }

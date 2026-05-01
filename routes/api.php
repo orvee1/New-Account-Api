@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\CompanyUserController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\CreditNoteController;
 use App\Http\Controllers\Api\DebitNoteController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\FixedAssetController;
 use App\Http\Controllers\Api\ManualJournalController;
@@ -186,7 +187,10 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('stock-report', [ReportController::class, 'stockReport']);
         Route::get('cash-flow', [ReportController::class, 'cashFlow']);
         Route::get('vendor-ledger', [ReportController::class, 'vendorLedger']);
+        Route::get('customer-ledger', [ReportController::class, 'customerLedger']);
     });
+
+    Route::get('dashboard/summary', [DashboardController::class, 'summary']);
 
     // ===== Payroll Management =====
     // Employees

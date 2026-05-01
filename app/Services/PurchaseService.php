@@ -10,8 +10,6 @@ use App\Models\PurchaseBillItem;
 use App\Models\PurchaseReturn;
 use App\Models\PurchaseReturnItem;
 use App\Models\InventoryMovement;
-use App\Models\JournalEntry;
-use App\Models\JournalLine;
 use App\Models\PurchasePayment;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
@@ -19,6 +17,11 @@ use Illuminate\Support\Facades\DB;
 
 class PurchaseService
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function createBill(array $payload, int $userId): PurchaseBill
     {
         $companyId = Auth::user()->company_id;
@@ -78,74 +81,52 @@ class PurchaseService
                 'credit_amount'     => $credit,
             ]);
 
-            //--------------------------------
-            // 5. Create Journal Entry (Header)
-            //--------------------------------
-            $journalEntry = JournalEntry::create([
+            $journalLines = [[
+                'key' => 'inventory',
+                'debit' => (float) $totalAmount,
+                'credit' => 0,
+                'narration' => "Purchase bill {$bill->bill_no}",
+            ]];
+
+            if ((float) $cash > 0) {
+                $journalLines[] = [
+                    'key' => 'cash',
+                    'debit' => 0,
+                    'credit' => (float) $cash,
+                    'narration' => "Cash payment {$bill->bill_no}",
+                ];
+            }
+
+            if ((float) $bank > 0) {
+                $journalLines[] = [
+                    'key' => 'bank',
+                    'debit' => 0,
+                    'credit' => (float) $bank,
+                    'narration' => "Bank payment {$bill->bill_no}",
+                ];
+            }
+
+            if ((float) $credit > 0) {
+                $journalLines[] = [
+                    'key' => 'accounts_payable',
+                    'debit' => 0,
+                    'credit' => (float) $credit,
+                    'narration' => "Vendor payable {$bill->bill_no}",
+                ];
+            }
+
+            $this->postingService->post([
                 'company_id' => $companyId,
-                'reference_id'   => $bill->id,
                 'reference_type' => PurchaseBill::class,
+                'reference_id' => $bill->id,
                 'entry_date' => $payload['bill_date'],
                 'description' => "Purchase Bill #{$bill->bill_no}",
                 'created_by' => $userId,
+                'lines' => $journalLines,
             ]);
 
             //--------------------------------
-            // 6. Journal Lines (DR/CR Lines)
-            //--------------------------------
-
-            // INVENTORY DR
-            JournalLine::create([
-                'journal_entry_id' => $journalEntry->id,
-                'company_id'       => $companyId,
-                // 'account_id'       => coa('inventory'),
-                'account_id'       => config('coa_map.inventory'),
-                'debit'            => $totalAmount,
-                'credit'           => 0,
-                'narration'        => 'Purchase Inventory',
-            ]);
-
-            // CASH CR
-            if ($cash > 0) {
-                JournalLine::create([
-                    'journal_entry_id' => $journalEntry->id,
-                    'company_id'       => $companyId,
-                    // 'account_id'       => coa('cash'),
-                    'account_id'       => config('coa_map.cash'),
-                    'debit'            => 0,
-                    'credit'           => $cash,
-                    'narration'        => 'Cash Payment',
-                ]);
-            }
-
-            // BANK CR
-            if ($bank > 0) {
-                JournalLine::create([
-                    'journal_entry_id' => $journalEntry->id,
-                    'company_id'       => $companyId,
-                    // 'account_id'       => coa('bank'),
-                    'account_id'       => config('coa_map.bank'),
-                    'debit'            => 0,
-                    'credit'           => $bank,
-                    'narration'        => 'Bank Payment',
-                ]);
-            }
-
-            // ACCOUNTS PAYABLE / VENDOR CREDIT CR
-            if ($credit > 0) {
-                JournalLine::create([
-                    'journal_entry_id' => $journalEntry->id,
-                    'company_id'       => $companyId,
-                    // 'account_id'       => coa('accounts_payable'),
-                    'account_id'       => config('coa_map.accounts_payable'),
-                    'debit'            => 0,
-                    'credit'           => $credit,
-                    'narration'        => 'Vendor Credit',
-                ]);
-            }
-
-            //--------------------------------
-            // 7. Return fresh Bill
+            // 5. Return fresh Bill
             //--------------------------------
             return $bill->load(['vendor', 'items.product', 'payment']);
         });

@@ -6,12 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\SalesPayment;
 use App\Http\Requests\StoreSalesPaymentRequest;
 use App\Http\Resources\SalesPaymentResource;
+use App\Services\AccountingPostingService;
 use App\Services\SalesPaymentService;
 use Illuminate\Http\Request;
 
 class SalesPaymentController extends Controller
 {
-    public function __construct(private SalesPaymentService $service) {}
+    public function __construct(
+        private SalesPaymentService $service,
+        private AccountingPostingService $postingService
+    ) {}
 
     // GET /api/sales-payments?q=&sales_invoice_id=&date_from=&date_to=&status=&per_page=20
     public function index(Request $request)
@@ -36,6 +40,7 @@ class SalesPaymentController extends Controller
     // GET /api/sales-payments/{id}
     public function show(SalesPayment $salesPayment)
     {
+        $this->ensureModelCompany($salesPayment);
         $salesPayment->load(['salesInvoice.customer']);
         return SalesPaymentResource::make($salesPayment);
     }
@@ -50,6 +55,8 @@ class SalesPaymentController extends Controller
     // DELETE /api/sales-payments/{id}
     public function destroy(SalesPayment $salesPayment)
     {
+        $this->ensureModelCompany($salesPayment);
+        $this->postingService->deleteForReference($salesPayment->company_id, SalesPayment::class, $salesPayment->id);
         $salesPayment->delete();
         return response()->noContent();
     }

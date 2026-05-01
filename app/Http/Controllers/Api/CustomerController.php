@@ -31,7 +31,10 @@ class CustomerController extends Controller
         $withTrashed = filter_var($request->get('with_trashed'), FILTER_VALIDATE_BOOLEAN);
         $onlyTrashed = filter_var($request->get('only_trashed'), FILTER_VALIDATE_BOOLEAN);
 
-        $query = Customer::query()->search($q)->orderByDesc('id');
+        $query = Customer::query()
+            ->where('company_id', auth()->user()->company_id)
+            ->search($q)
+            ->orderByDesc('id');
 
         if ($onlyTrashed) {
             $query->onlyTrashed();
@@ -54,6 +57,7 @@ class CustomerController extends Controller
     // GET /api/customers/{customer}
     public function show(Customer $customer)
     {
+        $this->ensureModelCompany($customer);
         return new CustomerResource($customer);
     }
 
@@ -62,6 +66,9 @@ class CustomerController extends Controller
     {
         return DB::transaction(function () use ($request) {
             $data = $request->validated();
+            $data['company_id'] = auth()->user()->company_id;
+            $data['created_by'] = auth()->id();
+            $data['updated_by'] = auth()->id();
 
             $data['opening_balance'] = $data['opening_balance'] ?? 0;
             $data['opening_balance_date'] = $data['opening_balance_date'] ?? now()->toDateString();
@@ -90,6 +97,7 @@ class CustomerController extends Controller
     // PUT/PATCH /api/customers/{customer}
     public function update(UpdateCustomerRequest $request, Customer $customer)
     {
+        $this->ensureModelCompany($customer);
         return DB::transaction(function () use ($request, $customer) {
             $customer->fill($request->validated());
             $customer->save();
@@ -102,6 +110,7 @@ class CustomerController extends Controller
     // DELETE /api/customers/{customer}
     public function destroy(Customer $customer)
     {
+        $this->ensureModelCompany($customer);
         $customer->delete();
 
         return response()->json(['message' => 'Customer deleted (soft).']);
@@ -110,7 +119,9 @@ class CustomerController extends Controller
     // POST /api/customers/{id}/restore
     public function restore($id)
     {
-        $customer = Customer::onlyTrashed()->findOrFail($id);
+        $customer = Customer::onlyTrashed()
+            ->where('company_id', auth()->user()->company_id)
+            ->findOrFail($id);
         $customer->restore();
 
         return (new CustomerResource($customer))

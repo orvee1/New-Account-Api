@@ -13,6 +13,7 @@ class Receipt extends Model
         'company_id',
         'receipt_number',
         'customer_id',
+        'credit_account_id',
         'receipt_date',
         'amount_received',
         'payment_mode',
@@ -35,5 +36,10 @@ class Receipt extends Model
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    public function creditAccount()
+    {
+        return $this->belongsTo(ChartAccount::class, 'credit_account_id');
     }
 }

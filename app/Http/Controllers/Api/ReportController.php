@@ -8,7 +8,11 @@ use App\Models\JournalLine;
 use App\Models\Payment;
 use App\Models\ProductStock;
 use App\Models\PurchaseBill;
+use App\Models\Receipt;
+use App\Models\SalesInvoice;
+use App\Models\SalesPayment;
 use App\Models\Vendor;
+use App\Models\Customer;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -502,6 +506,119 @@ class ReportController extends Controller
             'vendorSummaries' => $vendorSummaries,
             'totalOutstanding' => $this->roundNumber($totalOutstanding),
             'allVendors' => $vendors->pluck('name')->values()->all(),
+        ]);
+    }
+
+    public function customerLedger(Request $request)
+    {
+        $companyId = $this->companyId();
+        $fromDate = $request->query('from_date', Carbon::now()->startOfYear()->toDateString());
+        $toDate = $request->query('to_date', Carbon::now()->toDateString());
+        $customerId = $request->query('customer_id');
+
+        $customers = Customer::query()
+            ->where('company_id', $companyId)
+            ->when($customerId && $customerId !== 'all', fn($q) => $q->where('id', $customerId))
+            ->orderBy('name')
+            ->get();
+
+        $customerTransactions = [];
+        $customerSummaries = [];
+        $totalOutstanding = 0;
+
+        foreach ($customers as $customer) {
+            $transactions = collect();
+
+            $invoices = SalesInvoice::query()
+                ->where('company_id', $companyId)
+                ->where('customer_id', $customer->id)
+                ->when($fromDate, fn($q) => $q->whereDate('invoice_date', '>=', $fromDate))
+                ->when($toDate, fn($q) => $q->whereDate('invoice_date', '<=', $toDate))
+                ->get();
+
+            foreach ($invoices as $invoice) {
+                $transactions->push([
+                    'date' => $invoice->invoice_date ? $invoice->invoice_date->toDateString() : null,
+                    'ref' => $invoice->invoice_no ?? 'INV',
+                    'description' => $invoice->notes ?: 'Sales Invoice',
+                    'debit' => (float) $invoice->total_amount,
+                    'credit' => 0,
+                    'type' => 'invoice',
+                ]);
+            }
+
+            $payments = SalesPayment::query()
+                ->where('company_id', $companyId)
+                ->whereHas('salesInvoice', fn($q) => $q->where('customer_id', $customer->id))
+                ->when($fromDate, fn($q) => $q->whereDate('payment_date', '>=', $fromDate))
+                ->when($toDate, fn($q) => $q->whereDate('payment_date', '<=', $toDate))
+                ->get();
+
+            foreach ($payments as $payment) {
+                $transactions->push([
+                    'date' => $payment->payment_date ? $payment->payment_date->toDateString() : null,
+                    'ref' => $payment->payment_no ?? 'PAY',
+                    'description' => $payment->notes ?: 'Sales Payment',
+                    'debit' => 0,
+                    'credit' => (float) $payment->amount,
+                    'type' => 'payment',
+                ]);
+            }
+
+            $receipts = Receipt::query()
+                ->where('company_id', $companyId)
+                ->where('customer_id', $customer->id)
+                ->when($fromDate, fn($q) => $q->whereDate('receipt_date', '>=', $fromDate))
+                ->when($toDate, fn($q) => $q->whereDate('receipt_date', '<=', $toDate))
+                ->get();
+
+            foreach ($receipts as $receipt) {
+                $transactions->push([
+                    'date' => $receipt->receipt_date ? $receipt->receipt_date->toDateString() : null,
+                    'ref' => $receipt->receipt_number ?? 'RCP',
+                    'description' => $receipt->description ?: 'Receipt',
+                    'debit' => 0,
+                    'credit' => (float) $receipt->amount_received,
+                    'type' => 'receipt',
+                ]);
+            }
+
+            $transactions = $transactions->sortBy('date')->values();
+            $runningBalance = 0;
+
+            $transactions = $transactions->map(function ($txn) use (&$runningBalance) {
+                $runningBalance += ($txn['debit'] - $txn['credit']);
+                $txn['balance'] = $this->roundNumber($runningBalance);
+                $txn['debit'] = $this->roundNumber($txn['debit']);
+                $txn['credit'] = $this->roundNumber($txn['credit']);
+                return $txn;
+            });
+
+            $totalInvoices = $transactions->sum('debit');
+            $totalPayments = $transactions->sum('credit');
+            $balance = $transactions->last()['balance'] ?? 0;
+
+            $customerSummaries[] = [
+                'customer' => $customer->name,
+                'balance' => $this->roundNumber($balance),
+                'totalInvoices' => $this->roundNumber($totalInvoices),
+                'totalPayments' => $this->roundNumber($totalPayments),
+                'outstanding' => $this->roundNumber(max(0, $balance)),
+            ];
+
+            $totalOutstanding += max(0, $balance);
+
+            $customerTransactions[] = [
+                'customer' => $customer->name,
+                'transactions' => $transactions->values()->all(),
+            ];
+        }
+
+        return response()->json([
+            'customerTransactions' => $customerTransactions,
+            'customerSummaries' => $customerSummaries,
+            'totalOutstanding' => $this->roundNumber($totalOutstanding),
+            'allCustomers' => $customers->pluck('name')->values()->all(),
         ]);
     }
 

@@ -6,9 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\ChartAccount;
 use App\Models\TransactionTransfer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Services\AccountingPostingService;
 
 class TransactionTransferController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -31,7 +38,8 @@ class TransactionTransferController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request) {
+            $validated = $request->validate([
             'transfer_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'reference_number' => 'nullable|string',
@@ -43,7 +51,7 @@ class TransactionTransferController extends Controller
             'to_account_id' => 'nullable|exists:chart_accounts,id',
             'from_account_name' => 'nullable|string',
             'to_account_name' => 'nullable|string',
-        ]);
+            ]);
 
         $validated['from_account_id'] = $validated['from_account_id'] ?? $this->resolveAccountId($validated['from_account_name'] ?? null);
         $validated['to_account_id'] = $validated['to_account_id'] ?? $this->resolveAccountId($validated['to_account_name'] ?? null);
@@ -57,22 +65,25 @@ class TransactionTransferController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['transfer_number'] = $validated['transfer_number'] ?? ('TRF-' . time());
 
-        $transfer = TransactionTransfer::create($validated);
+            $transfer = TransactionTransfer::create($validated);
+            $this->postTransferJournal($transfer);
 
-        return response()->json($transfer->load(['fromAccount', 'toAccount']), 201);
+            return response()->json($transfer->load(['fromAccount', 'toAccount']), 201);
+        });
     }
 
     public function show(TransactionTransfer $transactionTransfer)
     {
-        $this->ensureCompanyAccess($transactionTransfer->company_id);
+        $this->ensureModelCompany($transactionTransfer);
         return response()->json($transactionTransfer->load(['fromAccount', 'toAccount']));
     }
 
     public function update(Request $request, TransactionTransfer $transactionTransfer)
     {
-        $this->ensureCompanyAccess($transactionTransfer->company_id);
+        $this->ensureModelCompany($transactionTransfer);
 
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request, $transactionTransfer) {
+            $validated = $request->validate([
             'transfer_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'reference_number' => 'nullable|string',
@@ -84,7 +95,7 @@ class TransactionTransferController extends Controller
             'to_account_id' => 'nullable|exists:chart_accounts,id',
             'from_account_name' => 'nullable|string',
             'to_account_name' => 'nullable|string',
-        ]);
+            ]);
 
         $validated['from_account_id'] = $validated['from_account_id'] ?? $this->resolveAccountId($validated['from_account_name'] ?? null);
         $validated['to_account_id'] = $validated['to_account_id'] ?? $this->resolveAccountId($validated['to_account_name'] ?? null);
@@ -93,14 +104,17 @@ class TransactionTransferController extends Controller
             return response()->json(['message' => 'Account not found'], 422);
         }
 
-        $transactionTransfer->update($validated);
+            $transactionTransfer->update($validated);
+            $this->postTransferJournal($transactionTransfer);
 
-        return response()->json($transactionTransfer->load(['fromAccount', 'toAccount']));
+            return response()->json($transactionTransfer->load(['fromAccount', 'toAccount']));
+        });
     }
 
     public function destroy(TransactionTransfer $transactionTransfer)
     {
-        $this->ensureCompanyAccess($transactionTransfer->company_id);
+        $this->ensureModelCompany($transactionTransfer);
+        $this->postingService->deleteForReference($transactionTransfer->company_id, TransactionTransfer::class, $transactionTransfer->id);
         $transactionTransfer->delete();
 
         return response()->json(['message' => 'Transaction transfer deleted']);
@@ -118,10 +132,29 @@ class TransactionTransferController extends Controller
             ->value('id');
     }
 
-    private function ensureCompanyAccess(?int $companyId): void
+    private function postTransferJournal(TransactionTransfer $transactionTransfer): void
     {
-        if ($companyId !== auth()->user()->company_id) {
-            abort(404, 'Not found');
-        }
+        $this->postingService->post([
+            'company_id' => $transactionTransfer->company_id,
+            'reference_type' => TransactionTransfer::class,
+            'reference_id' => $transactionTransfer->id,
+            'entry_date' => $transactionTransfer->transfer_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Transfer #{$transactionTransfer->transfer_number}",
+            'created_by' => $transactionTransfer->recorded_by,
+            'lines' => [
+                [
+                    'account_id' => $transactionTransfer->to_account_id,
+                    'debit' => (float) $transactionTransfer->amount,
+                    'credit' => 0,
+                    'narration' => $transactionTransfer->description ?: 'Transfer destination',
+                ],
+                [
+                    'account_id' => $transactionTransfer->from_account_id,
+                    'debit' => 0,
+                    'credit' => (float) $transactionTransfer->amount,
+                    'narration' => $transactionTransfer->description ?: 'Transfer source',
+                ],
+            ],
+        ]);
     }
 }

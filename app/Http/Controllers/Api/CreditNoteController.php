@@ -6,9 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\CreditNote;
 use App\Models\Customer;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Services\AccountingPostingService;
 
 class CreditNoteController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -32,9 +39,11 @@ class CreditNoteController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request) {
+            $validated = $request->validate([
             'customer_id' => 'nullable|exists:customers,id',
             'customer_name' => 'nullable|string',
+            'debit_account_id' => 'nullable|exists:chart_accounts,id',
             'note_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'invoice_reference' => 'nullable|string',
@@ -42,14 +51,14 @@ class CreditNoteController extends Controller
             'description' => 'nullable|string',
             'status' => 'nullable|string',
             'credit_note_number' => 'nullable|string',
-        ]);
+            ]);
 
         if (empty($validated['customer_id']) && !empty($validated['customer_name'])) {
             $validated['customer_id'] = $this->resolveCustomerId($validated['customer_name']);
         }
 
-        if (empty($validated['customer_id'])) {
-            return response()->json(['message' => 'Customer not found'], 422);
+            if (empty($validated['customer_id']) && empty($validated['debit_account_id'])) {
+                return response()->json(['message' => 'Customer or debit account is required'], 422);
         }
 
         $validated['company_id'] = auth()->user()->company_id;
@@ -57,24 +66,28 @@ class CreditNoteController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['credit_note_number'] = $validated['credit_note_number'] ?? ('CRN-' . time());
 
-        $creditNote = CreditNote::create($validated);
+            $creditNote = CreditNote::create($validated);
+            $this->postCreditNoteJournal($creditNote);
 
-        return response()->json($creditNote->load('customer'), 201);
+            return response()->json($creditNote->load(['customer', 'debitAccount']), 201);
+        });
     }
 
     public function show(CreditNote $creditNote)
     {
-        $this->ensureCompanyAccess($creditNote->company_id);
-        return response()->json($creditNote->load('customer'));
+        $this->ensureModelCompany($creditNote);
+        return response()->json($creditNote->load(['customer', 'debitAccount']));
     }
 
     public function update(Request $request, CreditNote $creditNote)
     {
-        $this->ensureCompanyAccess($creditNote->company_id);
+        $this->ensureModelCompany($creditNote);
 
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request, $creditNote) {
+            $validated = $request->validate([
             'customer_id' => 'nullable|exists:customers,id',
             'customer_name' => 'nullable|string',
+            'debit_account_id' => 'nullable|exists:chart_accounts,id',
             'note_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'invoice_reference' => 'nullable|string',
@@ -82,24 +95,27 @@ class CreditNoteController extends Controller
             'description' => 'nullable|string',
             'status' => 'nullable|string',
             'credit_note_number' => 'nullable|string',
-        ]);
+            ]);
 
         if (empty($validated['customer_id']) && !empty($validated['customer_name'])) {
             $validated['customer_id'] = $this->resolveCustomerId($validated['customer_name']);
         }
 
-        if (empty($validated['customer_id'])) {
-            return response()->json(['message' => 'Customer not found'], 422);
+            if (empty($validated['customer_id']) && empty($validated['debit_account_id'])) {
+                return response()->json(['message' => 'Customer or debit account is required'], 422);
         }
 
-        $creditNote->update($validated);
+            $creditNote->update($validated);
+            $this->postCreditNoteJournal($creditNote);
 
-        return response()->json($creditNote->load('customer'));
+            return response()->json($creditNote->load(['customer', 'debitAccount']));
+        });
     }
 
     public function destroy(CreditNote $creditNote)
     {
-        $this->ensureCompanyAccess($creditNote->company_id);
+        $this->ensureModelCompany($creditNote);
+        $this->postingService->deleteForReference($creditNote->company_id, CreditNote::class, $creditNote->id);
         $creditNote->delete();
 
         return response()->json(['message' => 'Credit note deleted']);
@@ -113,10 +129,28 @@ class CreditNoteController extends Controller
             ->value('id');
     }
 
-    private function ensureCompanyAccess(?int $companyId): void
+    private function postCreditNoteJournal(CreditNote $creditNote): void
     {
-        if ($companyId !== auth()->user()->company_id) {
-            abort(404, 'Not found');
-        }
+        $debitLine = ! empty($creditNote->debit_account_id)
+            ? ['account_id' => $creditNote->debit_account_id, 'debit' => (float) $creditNote->amount, 'credit' => 0]
+            : ['key' => 'sales_revenue', 'debit' => (float) $creditNote->amount, 'credit' => 0];
+
+        $this->postingService->post([
+            'company_id' => $creditNote->company_id,
+            'reference_type' => CreditNote::class,
+            'reference_id' => $creditNote->id,
+            'entry_date' => $creditNote->note_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Credit Note #{$creditNote->credit_note_number}",
+            'created_by' => $creditNote->recorded_by,
+            'lines' => [
+                $debitLine + ['narration' => $creditNote->description ?: 'Credit note adjustment'],
+                [
+                    'key' => 'accounts_receivable',
+                    'debit' => 0,
+                    'credit' => (float) $creditNote->amount,
+                    'narration' => $creditNote->description ?: 'Receivable reduction',
+                ],
+            ],
+        ]);
     }
 }

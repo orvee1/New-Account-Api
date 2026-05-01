@@ -6,9 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\DebitNote;
 use App\Models\Vendor;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Services\AccountingPostingService;
 
 class DebitNoteController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -32,9 +39,11 @@ class DebitNoteController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request) {
+            $validated = $request->validate([
             'vendor_id' => 'nullable|exists:vendors,id',
             'vendor_name' => 'nullable|string',
+            'credit_account_id' => 'nullable|exists:chart_accounts,id',
             'note_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'invoice_reference' => 'nullable|string',
@@ -42,14 +51,14 @@ class DebitNoteController extends Controller
             'description' => 'nullable|string',
             'status' => 'nullable|string',
             'debit_note_number' => 'nullable|string',
-        ]);
+            ]);
 
         if (empty($validated['vendor_id']) && !empty($validated['vendor_name'])) {
             $validated['vendor_id'] = $this->resolveVendorId($validated['vendor_name']);
         }
 
-        if (empty($validated['vendor_id'])) {
-            return response()->json(['message' => 'Vendor not found'], 422);
+        if (empty($validated['vendor_id']) && empty($validated['credit_account_id'])) {
+            return response()->json(['message' => 'Vendor or credit account is required'], 422);
         }
 
         $validated['company_id'] = auth()->user()->company_id;
@@ -57,24 +66,28 @@ class DebitNoteController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['debit_note_number'] = $validated['debit_note_number'] ?? ('DBN-' . time());
 
-        $debitNote = DebitNote::create($validated);
+            $debitNote = DebitNote::create($validated);
+            $this->postDebitNoteJournal($debitNote);
 
-        return response()->json($debitNote->load('vendor'), 201);
+            return response()->json($debitNote->load(['vendor', 'creditAccount']), 201);
+        });
     }
 
     public function show(DebitNote $debitNote)
     {
-        $this->ensureCompanyAccess($debitNote->company_id);
-        return response()->json($debitNote->load('vendor'));
+        $this->ensureModelCompany($debitNote);
+        return response()->json($debitNote->load(['vendor', 'creditAccount']));
     }
 
     public function update(Request $request, DebitNote $debitNote)
     {
-        $this->ensureCompanyAccess($debitNote->company_id);
+        $this->ensureModelCompany($debitNote);
 
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request, $debitNote) {
+            $validated = $request->validate([
             'vendor_id' => 'nullable|exists:vendors,id',
             'vendor_name' => 'nullable|string',
+            'credit_account_id' => 'nullable|exists:chart_accounts,id',
             'note_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'invoice_reference' => 'nullable|string',
@@ -82,24 +95,27 @@ class DebitNoteController extends Controller
             'description' => 'nullable|string',
             'status' => 'nullable|string',
             'debit_note_number' => 'nullable|string',
-        ]);
+            ]);
 
         if (empty($validated['vendor_id']) && !empty($validated['vendor_name'])) {
             $validated['vendor_id'] = $this->resolveVendorId($validated['vendor_name']);
         }
 
-        if (empty($validated['vendor_id'])) {
-            return response()->json(['message' => 'Vendor not found'], 422);
+            if (empty($validated['vendor_id']) && empty($validated['credit_account_id'])) {
+                return response()->json(['message' => 'Vendor or credit account is required'], 422);
         }
 
-        $debitNote->update($validated);
+            $debitNote->update($validated);
+            $this->postDebitNoteJournal($debitNote);
 
-        return response()->json($debitNote->load('vendor'));
+            return response()->json($debitNote->load(['vendor', 'creditAccount']));
+        });
     }
 
     public function destroy(DebitNote $debitNote)
     {
-        $this->ensureCompanyAccess($debitNote->company_id);
+        $this->ensureModelCompany($debitNote);
+        $this->postingService->deleteForReference($debitNote->company_id, DebitNote::class, $debitNote->id);
         $debitNote->delete();
 
         return response()->json(['message' => 'Debit note deleted']);
@@ -113,10 +129,28 @@ class DebitNoteController extends Controller
             ->value('id');
     }
 
-    private function ensureCompanyAccess(?int $companyId): void
+    private function postDebitNoteJournal(DebitNote $debitNote): void
     {
-        if ($companyId !== auth()->user()->company_id) {
-            abort(404, 'Not found');
-        }
+        $creditLine = ! empty($debitNote->credit_account_id)
+            ? ['account_id' => $debitNote->credit_account_id, 'debit' => 0, 'credit' => (float) $debitNote->amount]
+            : ['key' => 'purchase_account', 'debit' => 0, 'credit' => (float) $debitNote->amount];
+
+        $this->postingService->post([
+            'company_id' => $debitNote->company_id,
+            'reference_type' => DebitNote::class,
+            'reference_id' => $debitNote->id,
+            'entry_date' => $debitNote->note_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Debit Note #{$debitNote->debit_note_number}",
+            'created_by' => $debitNote->recorded_by,
+            'lines' => [
+                [
+                    'key' => 'accounts_payable',
+                    'debit' => (float) $debitNote->amount,
+                    'credit' => 0,
+                    'narration' => $debitNote->description ?: 'Debit note payable reduction',
+                ],
+                $creditLine + ['narration' => $debitNote->description ?: 'Debit note offset'],
+            ],
+        ]);
     }
 }

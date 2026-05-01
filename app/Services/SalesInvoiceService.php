@@ -13,6 +13,11 @@ use Illuminate\Support\Arr;
 
 class SalesInvoiceService
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function createInvoice(array $payload, int $userId): SalesInvoice
     {
         $companyId = Auth::guard('sanctum')->user()->company_id;
@@ -43,6 +48,8 @@ class SalesInvoiceService
                 'total_amount'    => $totals['total_amount'],
             ]);
 
+            $this->postInvoiceJournal($invoice, $userId);
+
             return $invoice;
         });
     }
@@ -72,6 +79,8 @@ class SalesInvoiceService
                 'tax_amount'      => $totals['tax_amount'],
                 'total_amount'    => $totals['total_amount'],
             ]);
+
+            $this->postInvoiceJournal($invoice, $userId);
 
             return $invoice;
         });
@@ -130,12 +139,8 @@ class SalesInvoiceService
                 'created_by'         => $userId,
             ]);
 
-            // Update invoice paid amount and status
-            $paidAmount = $invoice->paid_amount + $payment->amount;
-            $invoice->update([
-                'paid_amount' => $paidAmount,
-                'status'      => $paidAmount >= $invoice->total_amount ? 'paid' : 'partially_paid',
-            ]);
+            $this->postPaymentJournal($payment, $invoice, $userId);
+            $this->refreshInvoicePaymentStatus($invoice);
 
             return $payment;
         });
@@ -170,7 +175,12 @@ class SalesInvoiceService
 
         $totalAmount = $subtotal - $discountTotal + $taxTotal;
 
-        return compact('subtotal', 'discountTotal', 'taxTotal', 'totalAmount');
+        return [
+            'subtotal' => round($subtotal, 2),
+            'discount_total' => round($discountTotal, 2),
+            'tax_amount' => round($taxTotal, 2),
+            'total_amount' => round($totalAmount, 2),
+        ];
     }
 
     private function attachReturnItems(SalesReturn $return, array $items): array
@@ -202,6 +212,117 @@ class SalesInvoiceService
 
         $totalAmount = $subtotal - $discountTotal + $taxTotal;
 
-        return compact('subtotal', 'discountTotal', 'taxTotal', 'totalAmount');
+        return [
+            'subtotal' => round($subtotal, 2),
+            'discount_total' => round($discountTotal, 2),
+            'tax_amount' => round($taxTotal, 2),
+            'total_amount' => round($totalAmount, 2),
+        ];
+    }
+
+    private function postInvoiceJournal(SalesInvoice $invoice, int $userId): void
+    {
+        $lines = [
+            [
+                'key' => 'accounts_receivable',
+                'debit' => (float) $invoice->total_amount,
+                'credit' => 0,
+                'narration' => "Sales invoice {$invoice->invoice_no}",
+            ],
+            [
+                'key' => 'sales_revenue',
+                'debit' => 0,
+                'credit' => (float) $invoice->subtotal,
+                'narration' => "Sales revenue {$invoice->invoice_no}",
+            ],
+        ];
+
+        if ((float) $invoice->discount_total > 0) {
+            $lines[] = [
+                'key' => 'discount_allowed',
+                'debit' => (float) $invoice->discount_total,
+                'credit' => 0,
+                'narration' => "Discount on {$invoice->invoice_no}",
+            ];
+        }
+
+        if ((float) $invoice->tax_amount > 0) {
+            $lines[] = [
+                'key' => 'tax_payable',
+                'debit' => 0,
+                'credit' => (float) $invoice->tax_amount,
+                'narration' => "Tax on {$invoice->invoice_no}",
+            ];
+        }
+
+        $this->postingService->post([
+            'company_id' => $invoice->company_id,
+            'reference_type' => SalesInvoice::class,
+            'reference_id' => $invoice->id,
+            'entry_date' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Sales Invoice #{$invoice->invoice_no}",
+            'created_by' => $userId,
+            'lines' => $lines,
+        ]);
+    }
+
+    private function postPaymentJournal(SalesPayment $payment, SalesInvoice $invoice, int $userId): void
+    {
+        $assetKey = $this->paymentMethodKey($payment->payment_method);
+
+        $this->postingService->post([
+            'company_id' => $payment->company_id,
+            'reference_type' => SalesPayment::class,
+            'reference_id' => $payment->id,
+            'entry_date' => $payment->payment_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Sales Payment #{$payment->payment_no}",
+            'created_by' => $userId,
+            'lines' => [
+                [
+                    'key' => $assetKey,
+                    'debit' => (float) $payment->amount,
+                    'credit' => 0,
+                    'narration' => "Payment received for {$invoice->invoice_no}",
+                ],
+                [
+                    'key' => 'accounts_receivable',
+                    'debit' => 0,
+                    'credit' => (float) $payment->amount,
+                    'narration' => "Receivable cleared for {$invoice->invoice_no}",
+                ],
+            ],
+        ]);
+    }
+
+    private function refreshInvoicePaymentStatus(SalesInvoice $invoice): void
+    {
+        $invoice->refresh();
+
+        $paidAmount = (float) $invoice->payments()->sum('amount');
+        $status = 'unpaid';
+
+        if ($paidAmount > 0 && $paidAmount < (float) $invoice->total_amount) {
+            $status = 'partially_paid';
+        } elseif ($paidAmount >= (float) $invoice->total_amount && (float) $invoice->total_amount > 0) {
+            $status = 'paid';
+        }
+
+        $invoice->update([
+            'paid_amount' => $paidAmount,
+            'status' => $status,
+        ]);
+    }
+
+    private function paymentMethodKey(?string $paymentMethod): string
+    {
+        $method = strtolower((string) $paymentMethod);
+
+        return str_contains($method, 'bank')
+            || str_contains($method, 'cheque')
+            || str_contains($method, 'check')
+            || str_contains($method, 'transfer')
+            || str_contains($method, 'online')
+                ? 'bank'
+                : 'cash';
     }
 }

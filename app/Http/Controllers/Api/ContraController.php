@@ -6,9 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Models\ChartAccount;
 use App\Models\Contra;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Services\AccountingPostingService;
 
 class ContraController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -31,7 +38,8 @@ class ContraController extends Controller
 
     public function store(Request $request)
     {
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request) {
+            $validated = $request->validate([
             'contra_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'reference_number' => 'nullable|string',
@@ -42,7 +50,7 @@ class ContraController extends Controller
             'to_account_id' => 'nullable|exists:chart_accounts,id',
             'from_account_name' => 'nullable|string',
             'to_account_name' => 'nullable|string',
-        ]);
+            ]);
 
         $validated['from_account_id'] = $validated['from_account_id'] ?? $this->resolveAccountId($validated['from_account_name'] ?? null);
         $validated['to_account_id'] = $validated['to_account_id'] ?? $this->resolveAccountId($validated['to_account_name'] ?? null);
@@ -56,22 +64,25 @@ class ContraController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['contra_number'] = $validated['contra_number'] ?? ('CONTRA-' . time());
 
-        $contra = Contra::create($validated);
+            $contra = Contra::create($validated);
+            $this->postContraJournal($contra);
 
-        return response()->json($contra->load(['fromAccount', 'toAccount']), 201);
+            return response()->json($contra->load(['fromAccount', 'toAccount']), 201);
+        });
     }
 
     public function show(Contra $contra)
     {
-        $this->ensureCompanyAccess($contra->company_id);
+        $this->ensureModelCompany($contra);
         return response()->json($contra->load(['fromAccount', 'toAccount']));
     }
 
     public function update(Request $request, Contra $contra)
     {
-        $this->ensureCompanyAccess($contra->company_id);
+        $this->ensureModelCompany($contra);
 
-        $validated = $request->validate([
+        return DB::transaction(function () use ($request, $contra) {
+            $validated = $request->validate([
             'contra_date' => 'required|date',
             'amount' => 'required|numeric|min:0',
             'reference_number' => 'nullable|string',
@@ -82,7 +93,7 @@ class ContraController extends Controller
             'to_account_id' => 'nullable|exists:chart_accounts,id',
             'from_account_name' => 'nullable|string',
             'to_account_name' => 'nullable|string',
-        ]);
+            ]);
 
         $validated['from_account_id'] = $validated['from_account_id'] ?? $this->resolveAccountId($validated['from_account_name'] ?? null);
         $validated['to_account_id'] = $validated['to_account_id'] ?? $this->resolveAccountId($validated['to_account_name'] ?? null);
@@ -91,14 +102,17 @@ class ContraController extends Controller
             return response()->json(['message' => 'Account not found'], 422);
         }
 
-        $contra->update($validated);
+            $contra->update($validated);
+            $this->postContraJournal($contra);
 
-        return response()->json($contra->load(['fromAccount', 'toAccount']));
+            return response()->json($contra->load(['fromAccount', 'toAccount']));
+        });
     }
 
     public function destroy(Contra $contra)
     {
-        $this->ensureCompanyAccess($contra->company_id);
+        $this->ensureModelCompany($contra);
+        $this->postingService->deleteForReference($contra->company_id, Contra::class, $contra->id);
         $contra->delete();
 
         return response()->json(['message' => 'Contra entry deleted']);
@@ -116,10 +130,29 @@ class ContraController extends Controller
             ->value('id');
     }
 
-    private function ensureCompanyAccess(?int $companyId): void
+    private function postContraJournal(Contra $contra): void
     {
-        if ($companyId !== auth()->user()->company_id) {
-            abort(404, 'Not found');
-        }
+        $this->postingService->post([
+            'company_id' => $contra->company_id,
+            'reference_type' => Contra::class,
+            'reference_id' => $contra->id,
+            'entry_date' => $contra->contra_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Contra #{$contra->contra_number}",
+            'created_by' => $contra->recorded_by,
+            'lines' => [
+                [
+                    'account_id' => $contra->to_account_id,
+                    'debit' => (float) $contra->amount,
+                    'credit' => 0,
+                    'narration' => $contra->description ?: 'Contra destination',
+                ],
+                [
+                    'account_id' => $contra->from_account_id,
+                    'debit' => 0,
+                    'credit' => (float) $contra->amount,
+                    'narration' => $contra->description ?: 'Contra source',
+                ],
+            ],
+        ]);
     }
 }

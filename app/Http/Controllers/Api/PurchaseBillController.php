@@ -6,18 +6,23 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\PurchaseBillRequest;
 use App\Http\Resources\PurchaseBillResource;
 use App\Models\PurchaseBill;
+use App\Services\AccountingPostingService;
 use App\Services\PurchaseService;
 use Illuminate\Http\Request;
 
 class PurchaseBillController extends Controller
 {
-    public function __construct(private PurchaseService $service) {}
+    public function __construct(
+        private PurchaseService $service,
+        private AccountingPostingService $postingService
+    ) {}
 
     // GET /api/purchase-bills?q=&vendor_id=&date_from=&date_to=&per_page=20
     public function index(Request $req)
     {
         $q = PurchaseBill::query()
             ->with(['vendor'])
+            ->where('company_id', auth()->user()->company_id)
             ->when($req->filled('q'), function($qq) use ($req) {
                 $keyword = "%{$req->q}%";
                 $qq->where('bill_no','like',$keyword)
@@ -34,6 +39,7 @@ class PurchaseBillController extends Controller
     // GET /api/purchase-bills/{bill}
     public function show(PurchaseBill $bill)
     {
+        $this->ensureModelCompany($bill);
         $bill->load(['vendor','items.product']);
         return PurchaseBillResource::make($bill);
     }
@@ -48,6 +54,8 @@ class PurchaseBillController extends Controller
     // DELETE /api/purchase-bills/{bill}
     public function destroy(PurchaseBill $bill)
     {
+        $this->ensureModelCompany($bill);
+        $this->postingService->deleteForReference($bill->company_id, PurchaseBill::class, $bill->id);
         $bill->delete();
         return response()->noContent();
     }

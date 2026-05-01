@@ -67,13 +67,13 @@ class RecurringTransactionController extends Controller
 
     public function show(RecurringTransaction $recurringTransaction)
     {
-        $this->ensureCompanyAccess($recurringTransaction->company_id);
+        $this->ensureModelCompany($recurringTransaction);
         return response()->json($recurringTransaction->load(['fromAccount', 'toAccount']));
     }
 
     public function update(Request $request, RecurringTransaction $recurringTransaction)
     {
-        $this->ensureCompanyAccess($recurringTransaction->company_id);
+        $this->ensureModelCompany($recurringTransaction);
 
         $validated = $request->validate([
             'transaction_number' => 'nullable|string',
@@ -106,7 +106,7 @@ class RecurringTransactionController extends Controller
 
     public function destroy(RecurringTransaction $recurringTransaction)
     {
-        $this->ensureCompanyAccess($recurringTransaction->company_id);
+        $this->ensureModelCompany($recurringTransaction);
         $recurringTransaction->delete();
 
         return response()->json(['message' => 'Recurring transaction deleted']);
@@ -122,12 +122,5 @@ class RecurringTransactionController extends Controller
             ->where('company_id', auth()->user()->company_id)
             ->where('name', $name)
             ->value('id');
-    }
-
-    private function ensureCompanyAccess(?int $companyId): void
-    {
-        if ($companyId !== auth()->user()->company_id) {
-            abort(404, 'Not found');
-        }
     }
 }

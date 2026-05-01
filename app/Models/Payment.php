@@ -13,6 +13,7 @@ class Payment extends Model
         'company_id',
         'payment_number',
         'vendor_id',
+        'debit_account_id',
         'payment_date',
         'amount_paid',
         'payment_mode',
@@ -36,5 +37,10 @@ class Payment extends Model
     public function vendor()
     {
         return $this->belongsTo(Vendor::class);
+    }
+
+    public function debitAccount()
+    {
+        return $this->belongsTo(ChartAccount::class, 'debit_account_id');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Database\Eloquent\Model;
 use DeviceDetector\DeviceDetector;
 
 abstract class Controller
@@ -44,5 +45,17 @@ abstract class Controller
         $device_browser_name = implode(" . ", $data_array);
 
         return $device_browser_name;
+    }
+
+    protected function ensureCompanyAccess(?int $companyId): void
+    {
+        $userCompanyId = auth('sanctum')->user()?->company_id ?? auth()->user()?->company_id;
+
+        abort_unless($userCompanyId && (int) $companyId === (int) $userCompanyId, 404, 'Not found');
+    }
+
+    protected function ensureModelCompany(Model $model, string $companyKey = 'company_id'): void
+    {
+        $this->ensureCompanyAccess((int) ($model->{$companyKey} ?? 0));
     }
 }

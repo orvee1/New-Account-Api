@@ -13,13 +13,27 @@ return [
                 'code' => '1.1',
                 'type' => 'group',
                 'children' => [
-                    ['name' => 'Cash',                      'code' => '1.1.1', 'type' => 'group'],
+                    [
+                        'name' => 'Cash',
+                        'code' => '1.1.1',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Cash in Hand', 'code' => '1.1.1.1', 'type' => 'ledger'],
+                        ],
+                    ],
                     [
                         'name' => 'Cash at Bank',
                         'code' => '1.1.2',
                         'type' => 'group',
                         'children' => [
-                            ['name' => 'Bank A/C-Current',  'code' => '1.1.2.1', 'type' => 'group'],
+                            [
+                                'name' => 'Bank A/C-Current',
+                                'code' => '1.1.2.1',
+                                'type' => 'group',
+                                'children' => [
+                                    ['name' => 'Main Bank Account', 'code' => '1.1.2.1.1', 'type' => 'ledger'],
+                                ],
+                            ],
                             ['name' => 'Bank A/C-Saving',   'code' => '1.1.2.2', 'type' => 'group'],
                         ],
                     ],
@@ -28,10 +42,25 @@ return [
                         'code' => '1.1.4',
                         'type' => 'group',
                         'children' => [
-                            ['name' => 'Customer Receivable', 'code' => '1.1.4.1', 'type' => 'group'],
+                            [
+                                'name' => 'Customer Receivable',
+                                'code' => '1.1.4.1',
+                                'type' => 'group',
+                                'children' => [
+                                    ['name' => 'Accounts Receivable', 'code' => '1.1.4.1.1', 'type' => 'ledger'],
+                                ],
+                            ],
                         ]
-                    ],     
-                    ['name' => 'Inventory',                 'code' => '1.1.5', 'type' => 'group'],                         ['name' => 'Short-Term Investments',    'code' => '1.1.6', 'type' => 'group'],
+                    ],
+                    [
+                        'name' => 'Inventory',
+                        'code' => '1.1.5',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Inventory Ledger', 'code' => '1.1.5.1', 'type' => 'ledger'],
+                        ],
+                    ],
+                    ['name' => 'Short-Term Investments',    'code' => '1.1.6', 'type' => 'group'],
                     ['name' => 'Prepaid Expenses',          'code' => '1.1.7', 'type' => 'group'],
                     ['name' => 'Loans & Advances',          'code' => '1.1.8', 'type' => 'group'],
                     ['name' => 'Other Current Assets',      'code' => '1.1.9', 'type' => 'group'],
@@ -90,7 +119,14 @@ return [
                         'code' => '2.1.1',
                         'type' => 'group',
                         'children' => [
-                            ['name' => 'Vendor Payable', 'code' => '2.1.1.1', 'type' => 'group'],
+                            [
+                                'name' => 'Vendor Payable',
+                                'code' => '2.1.1.1',
+                                'type' => 'group',
+                                'children' => [
+                                    ['name' => 'Accounts Payable', 'code' => '2.1.1.1.1', 'type' => 'ledger'],
+                                ],
+                            ],
                         ]
                     ],
                     ['name' => 'Short-term Loan',                     'code' => '2.1.2', 'type' => 'group'],
@@ -100,6 +136,7 @@ return [
                     ['name' => 'Provisions',                          'code' => '2.1.6', 'type' => 'group'],
                     ['name' => 'Current Portion of Long-term Debt',   'code' => '2.1.7', 'type' => 'group'],
                     ['name' => 'Other Current Liabilities',           'code' => '2.1.8', 'type' => 'group'],
+                    ['name' => 'Tax Payable',                         'code' => '2.1.9', 'type' => 'ledger'],
                 ],
             ],
             [
@@ -141,7 +178,14 @@ return [
                 'code' => '4.1',
                 'type' => 'group',
                 'children' => [
-                    ['name' => 'Sales Revenue',                 'code' => '4.1.1', 'type' => 'group'],
+                    [
+                        'name' => 'Sales Revenue',
+                        'code' => '4.1.1',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Sales Revenue Ledger', 'code' => '4.1.1.1', 'type' => 'ledger'],
+                        ],
+                    ],
                     ['name' => 'Service Revenue',               'code' => '4.1.2', 'type' => 'group'],
                     ['name' => 'Commission income (operating)', 'code' => '4.1.3', 'type' => 'group'],
                 ],
@@ -183,7 +227,14 @@ return [
                 'code' => '5.1',
                 'type' => 'group',
                 'children' => [
-                    ['name' => 'Cost of Goods Sold',                 'code' => '5.1.1',  'type' => 'group'],
+                    [
+                        'name' => 'Cost of Goods Sold',
+                        'code' => '5.1.1',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Purchase / COGS', 'code' => '5.1.1.1', 'type' => 'ledger'],
+                        ],
+                    ],
                     ['name' => 'Raw Material Consumed',              'code' => '5.1.2',  'type' => 'group'],
                     ['name' => 'Direct Labor & Wages',               'code' => '5.1.3',  'type' => 'group'],
                     ['name' => 'Purchase Commission',                'code' => '5.1.4',  'type' => 'group'],
@@ -201,7 +252,14 @@ return [
                 'type' => 'group',
                 'children' => [
                     ['name' => 'Office Rent',                        'code' => '5.2.1',  'type' => 'group'],
-                    ['name' => 'Salaries & Wages',                   'code' => '5.2.2',  'type' => 'group'],
+                    [
+                        'name' => 'Salaries & Wages',
+                        'code' => '5.2.2',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Salary Expense', 'code' => '5.2.2.1', 'type' => 'ledger'],
+                        ],
+                    ],
                     ['name' => 'Utilities',                          'code' => '5.2.3',  'type' => 'group'],
                     ['name' => 'Office Supplies',                    'code' => '5.2.4',  'type' => 'group'],
                     ['name' => 'Repair & Maintenance',               'code' => '5.2.5',  'type' => 'group'],
@@ -213,7 +271,14 @@ return [
                     ['name' => 'Postage & Courier',                  'code' => '5.2.11', 'type' => 'group'],
                     ['name' => 'Advertisement & Promotion',          'code' => '5.2.12', 'type' => 'group'],
                     ['name' => 'Transportation / Delivery Charges',  'code' => '5.2.13', 'type' => 'group'],
-                    ['name' => 'Discounts Allowed',                  'code' => '5.2.14', 'type' => 'group'],
+                    [
+                        'name' => 'Discounts Allowed',
+                        'code' => '5.2.14',
+                        'type' => 'group',
+                        'children' => [
+                            ['name' => 'Discount Allowed Expense', 'code' => '5.2.14.1', 'type' => 'ledger'],
+                        ],
+                    ],
                     ['name' => 'Interest on Loan',                   'code' => '5.2.15', 'type' => 'group'],
                     ['name' => 'Bank Charges',                       'code' => '5.2.16', 'type' => 'group'],
                     ['name' => 'Audit fees',                         'code' => '5.2.17', 'type' => 'group'],

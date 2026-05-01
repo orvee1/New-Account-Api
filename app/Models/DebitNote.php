@@ -15,6 +15,7 @@ class DebitNote extends Model
         'company_id',
         'debit_note_number',
         'vendor_id',
+        'credit_account_id',
         'invoice_reference',
         'note_date',
         'reason',
@@ -47,5 +48,10 @@ class DebitNote extends Model
     public function vendor()
     {
         return $this->belongsTo(Vendor::class);
+    }
+
+    public function creditAccount()
+    {
+        return $this->belongsTo(ChartAccount::class, 'credit_account_id');
     }
 }

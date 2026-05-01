@@ -29,7 +29,7 @@ class VendorOpeningBalanceService
         $companyId = $vendor->company_id;
 
         $openingBalanceAccount = $this->getOpeningBalanceAdjustmentAccount($companyId);
-        $vendorPayableAccount  = $this->getVendorPayableAccount($companyId);
+        $vendorPayableAccount  = $vendor->chart_account_id ?: $this->getVendorPayableAccount($companyId);
         $vendorAdvanceAccount  = $this->getVendorAdvanceAccount($companyId);
 
         if (!$openingBalanceAccount || !$vendorPayableAccount || !$vendorAdvanceAccount) {
@@ -129,6 +129,7 @@ class VendorOpeningBalanceService
     {
         $openingBalanceAdjustment = ChartAccount::where('company_id', $companyId)
             ->where('slug', 'opening-balance-adjustment')
+            ->where('type', 'ledger')
             ->first();
 
         if (!$openingBalanceAdjustment) {
@@ -139,15 +140,21 @@ class VendorOpeningBalanceService
             ])->first();
 
             if ($parent) {
-                $openingBalanceAdjustment = ChartAccount::create([
-                    'parent_id' => $parent->id,
-                    'type' => 'ledger',
-                    'company_id' => $companyId,
-                    'name' => 'Opening Balance Adjustment',
-                    'slug' => 'opening-balance-adjustment',
-                ]);
-                $openingBalanceAdjustment->path = $parent ? rtrim($parent->path, '/') . '/' . $openingBalanceAdjustment->id : '/' . $openingBalanceAdjustment->id;
-                $openingBalanceAdjustment->save();
+                $openingBalanceAdjustment = ChartAccount::query()->firstOrCreate(
+                    [
+                        'company_id' => $companyId,
+                        'parent_id'  => $parent->id,
+                        'name'       => 'Opening Balance Adjustment',
+                    ],
+                    [
+                        'type' => 'ledger',
+                        'slug' => 'opening-balance-adjustment',
+                    ]
+                );
+                if (blank($openingBalanceAdjustment->path) || $openingBalanceAdjustment->path === '/') {
+                    $openingBalanceAdjustment->path = rtrim($parent->path, '/') . '/' . $openingBalanceAdjustment->id;
+                    $openingBalanceAdjustment->save();
+                }
             }
         }
         return $openingBalanceAdjustment->id ?? null;
@@ -160,6 +167,7 @@ class VendorOpeningBalanceService
     {
         $vendorPayable = ChartAccount::where('company_id', $companyId)
             ->where('slug', 'vendor-payable')
+            ->where('type', 'ledger')
             ->first();
 
         if (!$vendorPayable) {
@@ -170,15 +178,21 @@ class VendorOpeningBalanceService
                 ->first();
 
             if ($parent) {
-                $vendorPayable = ChartAccount::create([
-                    'parent_id' => $parent->id,
-                    'type' => 'ledger',
-                    'company_id' => $companyId,
-                    'name' => 'Vendor payable',
-                    'slug' => 'vendor-payable',
-                ]);
-                $vendorPayable->path = $parent ? rtrim($parent->path, '/') . '/' . $vendorPayable->id : '/' . $vendorPayable->id;
-                $vendorPayable->save();
+                $vendorPayable = ChartAccount::query()->firstOrCreate(
+                    [
+                        'company_id' => $companyId,
+                        'parent_id'  => $parent->id,
+                        'name'       => 'Vendor payable',
+                    ],
+                    [
+                        'type' => 'ledger',
+                        'slug' => 'vendor-payable',
+                    ]
+                );
+                if (blank($vendorPayable->path) || $vendorPayable->path === '/') {
+                    $vendorPayable->path = rtrim($parent->path, '/') . '/' . $vendorPayable->id;
+                    $vendorPayable->save();
+                }
             }
         }
         return $vendorPayable->id ?? null;
@@ -191,6 +205,7 @@ class VendorOpeningBalanceService
     {
         $vendorAdvanceAccount = ChartAccount::where('company_id', $companyId)
             ->where('slug', 'vendor-advance')
+            ->where('type', 'ledger')
             ->first();
 
         if (!$vendorAdvanceAccount) {
@@ -201,15 +216,21 @@ class VendorOpeningBalanceService
             ])->first();
 
             if ($parent) {
-                $vendorAdvanceAccount = ChartAccount::create([
-                    'parent_id' => $parent->id,
-                    'type' => 'ledger',
-                    'company_id' => $companyId,
-                    'name' => 'Vendor Advance',
-                    'slug' => 'vendor-advance',
-                ]);
-                $vendorAdvanceAccount->path = $parent ? rtrim($parent->path, '/') . '/' . $vendorAdvanceAccount->id : '/' . $vendorAdvanceAccount->id;
-                $vendorAdvanceAccount->save();
+                $vendorAdvanceAccount = ChartAccount::query()->firstOrCreate(
+                    [
+                        'company_id' => $companyId,
+                        'parent_id'  => $parent->id,
+                        'name'       => 'Vendor Advance',
+                    ],
+                    [
+                        'type' => 'ledger',
+                        'slug' => 'vendor-advance',
+                    ]
+                );
+                if (blank($vendorAdvanceAccount->path) || $vendorAdvanceAccount->path === '/') {
+                    $vendorAdvanceAccount->path = rtrim($parent->path, '/') . '/' . $vendorAdvanceAccount->id;
+                    $vendorAdvanceAccount->save();
+                }
             }
         }
         return $vendorAdvanceAccount->id ?? null;;

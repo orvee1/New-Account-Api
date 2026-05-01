@@ -97,31 +97,64 @@ class ProductOpeningStockService
     public function getInventoryAccount(int $companyId): ?ChartAccount
     {
         $inventory = ChartAccount::query()
-            ->where('slug', 'inventory')
             ->where('company_id', $companyId)
+            ->where('slug', 'inventory')
+            ->where('type', 'ledger')
             ->first();
 
         if ($inventory) return $inventory;
 
-        // try parent group "inventory" first; fallback "current-assets"
+        $inventoryGroup = ChartAccount::query()
+            ->where('company_id', $companyId)
+            ->where('type', 'group')
+            ->where('slug', 'inventory')
+            ->first();
+
+        if ($inventoryGroup) {
+            $inventory = ChartAccount::query()->firstOrCreate(
+                [
+                    'company_id' => $companyId,
+                    'parent_id'  => $inventoryGroup->id,
+                    'name'       => 'Inventory',
+                ],
+                [
+                    'type' => 'ledger',
+                    'slug' => 'inventory',
+                ]
+            );
+
+            if (blank($inventory->path) || $inventory->path === '/') {
+                $inventory->path = rtrim($inventoryGroup->path ?? '', '/') . '/' . $inventory->id;
+                $inventory->save();
+            }
+
+            return $inventory;
+        }
+
         $parent = ChartAccount::query()
             ->where('company_id', $companyId)
             ->where('type', 'group')
-            ->whereIn('slug', ['inventory', 'current-assets'])
+            ->where('slug', 'current-asset')
             ->first();
 
         if (!$parent) return null;
 
-        $inventory = ChartAccount::create([
-            'parent_id'  => $parent->id,
-            'type'       => 'ledger',
-            'company_id' => $companyId,
-            'name'       => 'Inventory',
-            'slug'       => 'inventory',
-        ]);
+        $inventory = ChartAccount::query()->firstOrCreate(
+            [
+                'company_id' => $companyId,
+                'parent_id'  => $parent->id,
+                'name'       => 'Inventory',
+            ],
+            [
+                'type' => 'ledger',
+                'slug' => 'inventory',
+            ]
+        );
 
-        $inventory->path = rtrim($parent->path ?? '', '/') . '/' . $inventory->id;
-        $inventory->save();
+        if (blank($inventory->path) || $inventory->path === '/') {
+            $inventory->path = rtrim($parent->path ?? '', '/') . '/' . $inventory->id;
+            $inventory->save();
+        }
 
         return $inventory;
     }
@@ -130,8 +163,9 @@ class ProductOpeningStockService
     {
         // NOTE: company_id filter must be applied (আপনার আগের সার্ভিসে এটা miss ছিল)
         $openingEquity = ChartAccount::query()
-            ->where('slug', 'opening-balances')
             ->where('company_id', $companyId)
+            ->where('slug', 'opening-balances')
+            ->where('type', 'ledger')
             ->first();
 
         if ($openingEquity) return $openingEquity;

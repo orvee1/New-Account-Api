@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Vendor;
+use App\Services\PartyAccountService;
 use App\Services\VendorOpeningBalanceService;
 use Illuminate\Database\Seeder;
 
@@ -200,6 +201,7 @@ class VendorSeeder extends Seeder
         ];
 
         $openingService = app(VendorOpeningBalanceService::class);
+        $partyAccounts = app(PartyAccountService::class);
 
         foreach ($vendors as $index => $vendor) {
             // Add unique vendor number for each record
@@ -211,6 +213,15 @@ class VendorSeeder extends Seeder
                 ],
                 $vendor
             );
+
+            if (!$created->chart_account_id) {
+                $vendorAccount = $partyAccounts->createVendorAccount($created);
+                if ($vendorAccount) {
+                    $created->chart_account_id = $vendorAccount->id;
+                    $created->saveQuietly();
+                }
+            }
+
             if ($created->opening_balance > 0 && in_array($created->opening_balance_type, ['debit', 'credit'], true)) {
                 $openingService->createOpeningBalanceJournal($created);
             }

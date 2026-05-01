@@ -28,6 +28,10 @@ class AppServiceProvider extends ServiceProvider
         // 1) Company Observer attach (এটাই default COA অটো-সিড করবে)
         Company::observe(CompanyObserver::class);
 
+        if ($this->app->runningInConsole()) {
+            return;
+        }
+
         // 2) Production-এ HTTPS force
         if ($this->app->environment('production')) {
             URL::forceScheme('https');

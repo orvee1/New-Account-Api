@@ -103,6 +103,7 @@ class CustomerOpeningBalanceService
     {
         $accountReceivable = ChartAccount::where('slug', 'account-receivable')
             ->where('company_id', $companyId)
+            ->where('type', 'ledger')
             ->first();
 
         if (!$accountReceivable) {
@@ -129,7 +130,10 @@ class CustomerOpeningBalanceService
 
     public function getCustomerAdvance(int $companyId)
     {
-        $customerAdvance = ChartAccount::where('slug', 'customer-advance')->first();
+        $customerAdvance = ChartAccount::where('slug', 'customer-advance')
+            ->where('company_id', $companyId)
+            ->where('type', 'ledger')
+            ->first();
 
         if (!$customerAdvance) {
             $parent = ChartAccount::where([
@@ -155,7 +159,10 @@ class CustomerOpeningBalanceService
     }
     public function getOpeningEquity(int $companyId)
     {
-        $openingEquity = ChartAccount::where('slug', 'opening-balances')->first();
+        $openingEquity = ChartAccount::where('slug', 'opening-balances')
+            ->where('company_id', $companyId)
+            ->where('type', 'ledger')
+            ->first();
 
         if (!$openingEquity) {
             $parent = ChartAccount::where([

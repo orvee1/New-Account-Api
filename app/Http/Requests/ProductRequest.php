@@ -73,6 +73,20 @@ class ProductRequest extends FormRequest
             'unit'           => ['nullable','string','max:50'],
             'status'         => ['nullable', Rule::in(['active','inactive'])],
             'meta'           => ['nullable','array'],
+
+            'vat_rate'       => ['nullable','numeric','min:0','max:100'],
+            'vat_inclusive'  => ['boolean'],
+            'ait_rate'       => ['nullable','numeric','min:0','max:100'],
+            'base_uom_id'    => ['nullable','integer','exists:units_of_measure,id'],
+
+            'product_uoms'                       => ['array'],
+            'product_uoms.*.uom_id'              => ['nullable','integer','exists:units_of_measure,id'],
+            'product_uoms.*.name'                => ['nullable','string','max:255'],
+            'product_uoms.*.symbol'              => ['nullable','string','max:50'],
+            'product_uoms.*.conversion_factor'   => ['required_with:product_uoms','numeric','min:0.000001'],
+            'product_uoms.*.sale_price'          => ['required_with:product_uoms','numeric','min:0'],
+            'product_uoms.*.is_base_uom'         => ['required_with:product_uoms','boolean'],
+            'product_uoms.*.is_default_sale_uom' => ['required_with:product_uoms','boolean'],
         ];
     }
 
@@ -89,7 +103,7 @@ class ProductRequest extends FormRequest
 
             // Type-based constraints
             if ($t === 'Stock') {
-                if ($this->filled('opening_quantity') > 0 && !$this->filled('warehouse_id')) {
+                if ((float)$this->input('opening_quantity') > 0 && !$this->filled('warehouse_id')) {
                     $v->errors()->add('warehouse_id', 'warehouse_id is required when opening_quantity is provided for Stock products.');
                 }
             } elseif (in_array($t, ['Non-stock','Service'], true)) {
@@ -113,6 +127,33 @@ class ProductRequest extends FormRequest
                     $v->errors()->add('units', 'At least one unit must have is_base=true.');
                 } elseif ($bases > 1) {
                     $v->errors()->add('units', 'Only one unit may have is_base=true.');
+                }
+            }
+
+            // Product UOMs validation
+            if ($this->filled('product_uoms') && is_array($this->input('product_uoms'))) {
+                $uoms = collect($this->input('product_uoms'));
+                
+                $baseUomsCount = $uoms->where('is_base_uom', true)->count();
+                if ($baseUomsCount !== 1) {
+                    $v->errors()->add('product_uoms', 'Exactly one UOM must be marked as base UOM.');
+                }
+
+                $defaultSaleUomsCount = $uoms->where('is_default_sale_uom', true)->count();
+                if ($defaultSaleUomsCount !== 1) {
+                    $v->errors()->add('product_uoms', 'Exactly one UOM must be marked as default sale UOM.');
+                }
+
+                // Base UOM must have factor 1
+                $baseUom = $uoms->where('is_base_uom', true)->first();
+                if ($baseUom && (float)$baseUom['conversion_factor'] !== 1.0) {
+                    $v->errors()->add('product_uoms', 'The base UOM must have a conversion factor of 1.');
+                }
+
+                // No duplicate names (if provided)
+                $names = $uoms->pluck('name')->filter()->toArray();
+                if (count($names) !== count(array_unique($names))) {
+                    $v->errors()->add('product_uoms', 'Duplicate UOM names are not allowed.');
                 }
             }
         });

@@ -3,366 +3,434 @@
 namespace App\Services;
 
 use App\Models\Product;
-use App\Models\ProductBatch;
-use App\Models\ProductUnit;
+use App\Models\ProductUom;
 use App\Models\PurchaseBill;
 use App\Models\PurchaseBillItem;
-use App\Models\PurchaseReturn;
-use App\Models\PurchaseReturnItem;
-use App\Models\InventoryMovement;
+use App\Models\InventoryLedger;
 use App\Models\JournalEntry;
 use App\Models\JournalLine;
-use App\Models\PurchasePayment;
+use App\Models\ChartAccount;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Exception;
 
 class PurchaseService
 {
     public function createBill(array $payload, int $userId): PurchaseBill
     {
-        $companyId = Auth::user()->company_id;
+        $companyId = Auth::guard('sanctum')->user()->company_id ?? 1;
 
         return DB::transaction(function () use ($payload, $userId, $companyId) {
+            // 0. Get Settings
+            $isVatRegistered = $this->getSetting($companyId, 'is_vat_registered', true);
+            $status = Arr::get($payload, 'status', 'confirmed');
 
-        //--------------------------------
-        // 1. Create Bill
-        //--------------------------------
-            /** @var PurchaseBill $bill */
+            // 1. Create Bill Header
             $bill = PurchaseBill::create([
-                'company_id'        => $companyId,
-                'vendor_id'         => $payload['vendor_id'],
-                'bill_no'           => $payload['bill_no'],
-                'bill_date'         => $payload['bill_date'],
-                'due_date'          => Arr::get($payload, 'due_date'),
-                'warehouse_id'      => Arr::get($payload, 'warehouse_id'),
-                'notes'             => Arr::get($payload, 'notes'),
-                'tax_amount'        => (float) Arr::get($payload, 'tax_amount', 0),
-                'created_by'        => $userId,
+                'company_id'               => $companyId,
+                'vendor_id'                => $payload['vendor_id'],
+                'bill_no'                  => $payload['bill_no'],
+                'bill_date'                => $payload['bill_date'],
+                'due_date'                 => Arr::get($payload, 'due_date'),
+                'supplier_ref_no'          => Arr::get($payload, 'supplier_ref_no'),
+                'notes'                    => Arr::get($payload, 'notes'),
+                'vat_mode'                 => Arr::get($payload, 'vat_mode', 'exclusive'),
+                'bill_discount_amt'        => Arr::get($payload, 'bill_discount_amt', 0),
+                'bill_discount_account_id' => Arr::get($payload, 'bill_discount_account_id'),
+                'created_by'               => $userId,
+                'payment_status'           => 'unpaid',
+                'status'                   => $status,
             ]);
 
-            //--------------------------------
-            // 2. Insert Items + Stock Movements
-            //--------------------------------
-            $totals = $this->attachBillItemsAndMovements(
-                $bill,
-                $payload['items'],
-                $userId
-            );
+            // 2. Process Line Items (Sequential for WAC only if NOT draft)
+            $totals = $this->processBillItems($bill, $payload['items'], $isVatRegistered, $status !== 'draft');
 
-            //--------------------------------
-            // 3. Update Totals
-            //--------------------------------
-            $totalAmount = $totals['subtotal']
-                - $totals['discount_total']
-                + (float) $bill->tax_amount;
-
+            // 3. Update Bill Header with totals
             $bill->update([
-                'subtotal'        => $totals['subtotal'],
-                'discount_total'  => $totals['discount_total'],
-                'total_amount'    => $totalAmount,
-                'updated_by'      => $userId,
+                'subtotal'           => $totals['subtotal'],
+                'trade_discount_amt' => $totals['trade_discount_amt'],
+                'line_discount_amt'  => $totals['line_discount_amt'],
+                'taxable_amount'     => $totals['taxable_amount'],
+                'vat_amount'         => $totals['vat_amount'],
+                'ait_amount'         => $totals['ait_amount'],
+                'total_amount'       => $totals['taxable_amount'] + ($bill->vat_mode === 'exclusive' ? $totals['vat_amount'] : 0) - $totals['ait_amount'] - $bill->bill_discount_amt,
             ]);
 
-            //--------------------------------
-            // 4. Payment Breakdown
-            //--------------------------------
-            $cash   = Arr::get($payload, 'payments.cash', 0);
-            $bank   = Arr::get($payload, 'payments.bank', 0);
-            $credit = $totalAmount - ($cash + $bank);
+            // 4. Generate Journal Entries (Only if NOT draft)
+            if ($status !== 'draft') {
+                $this->generateJournalEntries($bill, $isVatRegistered);
+            }
 
-            PurchasePayment::create([
-                'purchase_bill_id'  => $bill->id,
-                'cash_amount'       => $cash,
-                'bank_amount'       => $bank,
-                'credit_amount'     => $credit,
+            return $bill->load(['vendor', 'items.product']);
+        });
+    }
+
+    private function processBillItems(PurchaseBill $bill, array $items, bool $isVatRegistered, bool $updateStock = true): array
+    {
+        $totals = [
+            'subtotal'           => 0,
+            'trade_discount_amt' => 0,
+            'line_discount_amt'  => 0,
+            'taxable_amount'     => 0,
+            'vat_amount'         => 0,
+            'ait_amount'         => 0,
+        ];
+
+        foreach ($items as $itemData) {
+            $product = Product::findOrFail($itemData['product_id']);
+            $purchaseUom = ProductUom::findOrFail($itemData['purchase_uom_id']);
+            $priceUom = ProductUom::findOrFail($itemData['price_uom_id']);
+
+            $quantity = (float)$itemData['quantity'];
+            $unitPrice = (float)$itemData['unit_price'];
+
+            // Multi-UOM Calculation
+            $qtyInBase = $quantity * (float)$purchaseUom->conversion_factor;
+            $pricePerBaseUnit = $unitPrice / (float)$priceUom->conversion_factor;
+            $unitPriceOriginal = $pricePerBaseUnit * (float)$purchaseUom->conversion_factor;
+            $lineGrossAmount = $quantity * unitPriceOriginal;
+
+            // Discounts
+            $tradeDiscountPct = (float)Arr::get($itemData, 'trade_discount_pct', 0);
+            $tradeDiscountAmt = $lineGrossAmount * ($tradeDiscountPct / 100);
+            $amountAfterTradeDiscount = $lineGrossAmount - $tradeDiscountAmt;
+
+            $lineDiscountPct = (float)Arr::get($itemData, 'line_discount_pct', 0);
+            $lineDiscountAmt = (float)Arr::get($itemData, 'line_discount_amt', 0);
+            if ($lineDiscountAmt == 0 && $lineDiscountPct > 0) {
+                $lineDiscountAmt = $amountAfterTradeDiscount * ($lineDiscountPct / 100);
+            }
+
+            $lineSubtotal = $amountAfterTradeDiscount - $lineDiscountAmt;
+
+            // VAT & AIT
+            $vatRate = (float)Arr::get($itemData, 'vat_rate', 0);
+            $aitRate = (float)Arr::get($itemData, 'ait_rate', 0);
+            $vatAmount = 0;
+            if ($bill->vat_mode === 'inclusive') {
+                $vatAmount = $lineSubtotal * $vatRate / (100 + $vatRate);
+            } else {
+                $vatAmount = $lineSubtotal * ($vatRate / 100);
+            }
+            $aitAmount = $lineSubtotal * ($aitRate / 100);
+
+            // Net Unit Cost for WAC
+            $netUnitCost = 0;
+            if ($qtyInBase > 0) {
+                if ($isVatRegistered) {
+                    $netUnitCost = $lineSubtotal / $qtyInBase;
+                } else {
+                    $netUnitCost = ($lineSubtotal + $vatAmount) / $qtyInBase;
+                }
+            }
+
+            // Sequential WAC Calculation
+            // Calculate WAC only if requested
+            $oldAvg = 0;
+            $newAvg = 0;
+
+            if ($updateStock) {
+                $oldStock = (float)$product->current_stock_in_base_uom;
+                $oldAvg = (float)$product->weighted_avg_cost;
+                $newStock = $oldStock + $qtyInBase;
+                $newAvg = $oldAvg;
+
+                if ($newStock > 0) {
+                    $newAvg = (($oldStock * $oldAvg) + ($qtyInBase * $netUnitCost)) / $newStock;
+                }
+
+                // Update Product
+                $product->update([
+                    'current_stock_in_base_uom' => $newStock,
+                    'weighted_avg_cost'         => $newAvg,
+                ]);
+
+                // Inventory Ledger
+                InventoryLedger::create([
+                    'product_id'            => $product->id,
+                    'reference_id'          => $bill->id,
+                    'reference_type'        => 'purchase',
+                    'qty_in'                => $qtyInBase,
+                    'qty_out'               => 0,
+                    'qty_balance'           => $newStock,
+                    'unit_cost'             => $netUnitCost,
+                    'total_cost'            => $qtyInBase * $netUnitCost,
+                    'new_weighted_avg_cost' => $newAvg,
+                ]);
+            }
+
+            // Save Item
+            PurchaseBillItem::create([
+                'company_id'               => $bill->company_id,
+                'purchase_bill_id'         => $bill->id,
+                'product_id'               => $product->id,
+                'purchase_uom_id'          => $purchaseUom->id,
+                'price_uom_id'             => $priceUom->id,
+                'quantity_in_purchase_uom' => $quantity,
+                'quantity_in_base_uom'     => $qtyInBase,
+                'unit_price_original'      => $unitPriceOriginal,
+                'trade_discount_pct'       => $tradeDiscountPct,
+                'trade_discount_amt'       => $tradeDiscountAmt,
+                'net_unit_price'           => $unitPriceOriginal * (1 - $tradeDiscountPct / 100),
+                'line_gross_amount'        => $lineGrossAmount,
+                'line_discount_pct'        => $lineDiscountPct,
+                'line_discount_amt'        => $lineDiscountAmt,
+                'line_subtotal'            => $lineSubtotal,
+                'vat_rate'                 => $vatRate,
+                'vat_amount'               => $vatAmount,
+                'ait_rate'                 => $aitRate,
+                'ait_amount'               => $aitAmount,
+                'net_unit_cost'            => $netUnitCost,
+                'weighted_avg_cost_before' => $oldAvg,
+                'weighted_avg_cost_after'  => $newAvg,
+                'line_total'               => $lineSubtotal + ($bill->vat_mode === 'exclusive' ? $vatAmount : 0),
             ]);
 
-            //--------------------------------
-            // 5. Create Journal Entry (Header)
-            //--------------------------------
-            $journalEntry = JournalEntry::create([
-                'company_id' => $companyId,
-                'reference_id'   => $bill->id,
-                'reference_type' => PurchaseBill::class,
-                'entry_date' => $payload['bill_date'],
-                'description' => "Purchase Bill #{$bill->bill_no}",
-                'created_by' => $userId,
-            ]);
+            // Accumulate Totals
+            $totals['subtotal']           += $lineGrossAmount;
+            $totals['trade_discount_amt'] += $tradeDiscountAmt;
+            $totals['line_discount_amt']  += $lineDiscountAmt;
+            $totals['taxable_amount']     += $lineSubtotal;
+            $totals['vat_amount']         += $vatAmount;
+            $totals['ait_amount']         += $aitAmount;
+        }
 
-            //--------------------------------
-            // 6. Journal Lines (DR/CR Lines)
-            //--------------------------------
+        return $totals;
+    }
 
-            // INVENTORY DR
+    private function generateJournalEntries(PurchaseBill $bill, bool $isVatRegistered)
+    {
+        $companyId = $bill->company_id;
+        
+        $journalEntry = JournalEntry::create([
+            'company_id'     => $companyId,
+            'reference_id'   => $bill->id,
+            'reference_type' => PurchaseBill::class,
+            'entry_date'     => $bill->bill_date,
+            'description'    => "Purchase Bill #{$bill->bill_no}",
+            'created_by'     => Auth::id() ?? $bill->created_by,
+        ]);
+
+        $inventoryAccountId = config('coa_map.inventory') ?? $this->getAccountId('Inventory', 'asset', $companyId);
+        $apAccountId = config('coa_map.accounts_payable') ?? $this->getAccountId('Accounts Payable', 'liability', $companyId);
+        $vatReceivableAccountId = $this->getAccountId('Input VAT Receivable', 'asset', $companyId);
+        $aitPayableAccountId = $this->getAccountId('AIT Payable', 'liability', $companyId);
+        $purchaseDiscountAccountId = $bill->bill_discount_account_id ?? $this->getAccountId('Purchase Discount', 'income', $companyId);
+
+        foreach ($bill->items as $item) {
+            // DR Inventory
+            $inventoryDr = $isVatRegistered ? $item->line_subtotal : ($item->line_subtotal + $item->vat_amount);
             JournalLine::create([
                 'journal_entry_id' => $journalEntry->id,
                 'company_id'       => $companyId,
-                // 'account_id'       => coa('inventory'),
-                'account_id'       => config('coa_map.inventory'),
-                'debit'            => $totalAmount,
+                'account_id'       => $inventoryAccountId,
+                'debit'            => $inventoryDr,
                 'credit'           => 0,
-                'narration'        => 'Purchase Inventory',
+                'narration'        => "Inventory Purchase - {$item->product->name}",
             ]);
 
-            // CASH CR
-            if ($cash > 0) {
+            // DR Input VAT (if registered)
+            if ($isVatRegistered && $item->vat_amount > 0) {
                 JournalLine::create([
                     'journal_entry_id' => $journalEntry->id,
                     'company_id'       => $companyId,
-                    // 'account_id'       => coa('cash'),
-                    'account_id'       => config('coa_map.cash'),
-                    'debit'            => 0,
-                    'credit'           => $cash,
-                    'narration'        => 'Cash Payment',
+                    'account_id'       => $vatReceivableAccountId,
+                    'debit'            => $item->vat_amount,
+                    'credit'           => 0,
+                    'narration'        => "Input VAT on Purchase - {$item->product->name}",
                 ]);
             }
 
-            // BANK CR
-            if ($bank > 0) {
+            // CR Accounts Payable
+            // AP = (line_subtotal + vat_exclusive) - ait
+            $itemApAmount = $item->line_subtotal + ($bill->vat_mode === 'exclusive' ? $item->vat_amount : 0) - $item->ait_amount;
+            JournalLine::create([
+                'journal_entry_id' => $journalEntry->id,
+                'company_id'       => $companyId,
+                'account_id'       => $apAccountId,
+                'debit'            => 0,
+                'credit'           => $itemApAmount,
+                'narration'        => "Payable to Vendor for {$item->product->name}",
+            ]);
+
+            // CR AIT Payable
+            if ($item->ait_amount > 0) {
                 JournalLine::create([
                     'journal_entry_id' => $journalEntry->id,
                     'company_id'       => $companyId,
-                    // 'account_id'       => coa('bank'),
-                    'account_id'       => config('coa_map.bank'),
+                    'account_id'       => $aitPayableAccountId,
                     'debit'            => 0,
-                    'credit'           => $bank,
-                    'narration'        => 'Bank Payment',
+                    'credit'           => $item->ait_amount,
+                    'narration'        => "AIT Payable on Purchase - {$item->product->name}",
                 ]);
             }
+        }
 
-            // ACCOUNTS PAYABLE / VENDOR CREDIT CR
-            if ($credit > 0) {
-                JournalLine::create([
-                    'journal_entry_id' => $journalEntry->id,
-                    'company_id'       => $companyId,
-                    // 'account_id'       => coa('accounts_payable'),
-                    'account_id'       => config('coa_map.accounts_payable'),
-                    'debit'            => 0,
-                    'credit'           => $credit,
-                    'narration'        => 'Vendor Credit',
-                ]);
+        // Bill level discount
+        if ($bill->bill_discount_amt > 0) {
+            // DR Accounts Payable
+            JournalLine::create([
+                'journal_entry_id' => $journalEntry->id,
+                'company_id'       => $companyId,
+                'account_id'       => $apAccountId,
+                'debit'            => $bill->bill_discount_amt,
+                'credit'           => 0,
+                'narration'        => "Bill Discount applied",
+            ]);
+
+            // CR Purchase Discount
+            JournalLine::create([
+                'journal_entry_id' => $journalEntry->id,
+                'company_id'       => $companyId,
+                'account_id'       => $purchaseDiscountAccountId,
+                'debit'            => 0,
+                'credit'           => $bill->bill_discount_amt,
+                'narration'        => "Purchase Discount income",
+            ]);
+        }
+    }
+
+    public function updateBill(PurchaseBill $bill, array $payload): PurchaseBill
+    {
+        if ($bill->payment_status !== 'unpaid') {
+            throw new Exception("Only unpaid bills can be updated.");
+        }
+
+        return DB::transaction(function () use ($bill, $payload) {
+            // 1. Reverse old stock and journal entries
+            $this->reverseBillImpact($bill);
+
+            $status = Arr::get($payload, 'status', $bill->status);
+
+            // 2. Update Header
+            $bill->update([
+                'vendor_id'                => $payload['vendor_id'],
+                'bill_no'                  => $payload['bill_no'],
+                'bill_date'                => $payload['bill_date'],
+                'due_date'                 => Arr::get($payload, 'due_date'),
+                'supplier_ref_no'          => Arr::get($payload, 'supplier_ref_no'),
+                'notes'                    => Arr::get($payload, 'notes'),
+                'vat_mode'                 => Arr::get($payload, 'vat_mode', 'exclusive'),
+                'bill_discount_amt'        => Arr::get($payload, 'bill_discount_amt', 0),
+                'bill_discount_account_id' => Arr::get($payload, 'bill_discount_account_id'),
+                'status'                   => $status,
+            ]);
+
+            // 3. Process new items (updateStock only if new status is confirmed)
+            $isVatRegistered = $this->getSetting($bill->company_id, 'is_vat_registered', true);
+            $totals = $this->processBillItems($bill, $payload['items'], $isVatRegistered, $status !== 'draft');
+
+            // 4. Update totals
+            $bill->update([
+                'subtotal'           => $totals['subtotal'],
+                'trade_discount_amt' => $totals['trade_discount_amt'],
+                'line_discount_amt'  => $totals['line_discount_amt'],
+                'taxable_amount'     => $totals['taxable_amount'],
+                'vat_amount'         => $totals['vat_amount'],
+                'ait_amount'         => $totals['ait_amount'],
+                'total_amount'       => $totals['taxable_amount'] + ($bill->vat_mode === 'exclusive' ? $totals['vat_amount'] : 0) - $totals['ait_amount'] - $bill->bill_discount_amt,
+            ]);
+
+            // 5. Re-generate journal entries (Only if confirmed)
+            if ($status !== 'draft') {
+                $this->generateJournalEntries($bill, $isVatRegistered);
             }
 
-            //--------------------------------
-            // 7. Return fresh Bill
-            //--------------------------------
-            return $bill->load(['vendor', 'items.product', 'payment']);
+            return $bill->refresh();
         });
     }
 
-    public function createReturn(array $payload, int $userId): PurchaseReturn
+    public function deleteBill(PurchaseBill $bill): void
     {
-        $companyId = Auth::user()->company_id;
-
-        return DB::transaction(function () use ($payload, $userId, $companyId) {
-            /** @var PurchaseReturn $ret */
-            $ret = PurchaseReturn::create([
-                'company_id'   => $companyId,
-                'vendor_id'    => $payload['vendor_id'],
-                'return_no'    => $payload['return_no'],
-                'return_date'  => $payload['return_date'],
-                'warehouse_id' => Arr::get($payload, 'warehouse_id'),
-                'notes'        => Arr::get($payload, 'notes'),
-                'tax_amount'   => (float) Arr::get($payload, 'tax_amount', 0),
-                'created_by'   => $userId,
-            ]);
-
-            $totals = $this->attachReturnItemsAndMovements($ret, $payload['items'], $userId);
-
-            $ret->update([
-                'subtotal'       => $totals['subtotal'],
-                'discount_total' => $totals['discount_total'],
-                'total_amount'   => $totals['subtotal'] - $totals['discount_total'] + (float)$ret->tax_amount,
-                'updated_by'     => $userId,
-            ]);
-
-            return $ret->load(['vendor', 'items.product']);
+        DB::transaction(function () use ($bill) {
+            $this->reverseBillImpact($bill);
+            $bill->delete();
         });
     }
 
-    /* ---------------------- internal helpers ---------------------- */
-
-    private function attachBillItemsAndMovements(PurchaseBill $bill, array $items, int $userId): array
+    private function reverseBillImpact(PurchaseBill $bill)
     {
-        $subtotal = 0.0;
-        $discountTotal = 0.0;
+        // 1. Reverse Stock and WAC for each item (Only if confirmed)
+        if ($bill->status !== 'draft') {
+            foreach ($bill->items as $item) {
+                $product = $item->product;
+                
+                $oldStock = (float)$product->current_stock_in_base_uom;
+                $oldAvg = (float)$product->weighted_avg_cost;
+                $oldTotalValue = $oldStock * $oldAvg;
 
-        foreach ($items as $i) {
-            $product   = Product::query()->findOrFail($i['product_id']);
-            $qtyUnit   = ProductUnit::query()->findOrFail($i['qty_unit_id']);
-            $rateUnit  = ProductUnit::query()->findOrFail($i['rate_unit_id']);
+                $removedQty = (float)$item->quantity_in_base_uom;
+                $removedCost = (float)$item->net_unit_cost;
+                $removedValue = $removedQty * $removedCost;
 
-            $qtyBase   = round((float)$i['qty'] * (float)$qtyUnit->factor, 6);
-            $rateBase  = round(((float)$i['rate_per_unit'] / max((float)$rateUnit->factor, 0.000001)), 6);
-            $lineSub   = round($qtyBase * $rateBase, 4);
+                $newStock = $oldStock - $removedQty;
+                $newAvg = $oldAvg;
+                
+                if ($newStock > 0) {
+                    $newAvg = ($oldTotalValue - $removedValue) / $newStock;
+                } elseif ($newStock == 0) {
+                    $newAvg = 0;
+                }
+                // If newStock < 0, we keep the oldAvg
 
-            $discAmt   = (float)($i['discount_amount'] ?? 0);
-            $discPct   = (float)($i['discount_percent'] ?? 0);
-            if ($discAmt <= 0 && $discPct > 0) {
-                $discAmt = round($lineSub * ($discPct / 100), 4);
-            }
-            $lineTotal = round($lineSub - $discAmt, 4);
+                $product->update([
+                    'current_stock_in_base_uom' => $newStock,
+                    'weighted_avg_cost'         => $newAvg,
+                ]);
 
-            // batch ensure
-            $batchId = null;
-            $batchNo = Arr::get($i, 'batch_no');
-            $mfg     = Arr::get($i, 'manufactured_at');
-            $exp     = Arr::get($i, 'expired_at');
-
-            if ($batchNo) {
-                $batch = ProductBatch::firstOrCreate(
-                    ['company_id' => $bill->company_id, 'product_id' => $product->id, 'batch_no' => $batchNo],
-                    ['manufactured_at' => $mfg, 'expired_at' => $exp]
-                );
-                // if new info comes later and empty previously, we can fill
-                if (!$batch->manufactured_at && $mfg) $batch->manufactured_at = $mfg;
-                if (!$batch->expired_at && $exp) $batch->expired_at = $exp;
-                $batch->save();
-                $batchId = $batch->id;
-            }
-
-            $warehouseId = Arr::get($i, 'warehouse_id', $bill->warehouse_id);
-
-            PurchaseBillItem::create([
-                'company_id'     => $bill->company_id,
-                'purchase_bill_id' => $bill->id,
-                'product_id'     => $product->id,
-
-                'qty_unit_id'    => $qtyUnit->id,
-                'qty'            => $i['qty'],
-                'qty_base'       => $qtyBase,
-
-                'rate_unit_id'   => $rateUnit->id,
-                'rate_per_unit'  => $i['rate_per_unit'],
-                'rate_per_base'  => $rateBase,
-
-                'discount_percent' => $discPct,
-                'discount_amount' => $discAmt,
-
-                'line_subtotal'  => $lineSub,
-                'line_total'     => $lineTotal,
-
-                'warehouse_id'   => $warehouseId,
-                'batch_id'       => $batchId,
-                'batch_no'       => $batchNo,
-                'manufactured_at' => $mfg,
-                'expired_at'     => $exp,
-            ]);
-
-            // Inventory In (+)
-            if ($this->isStockTracked($product)) {
-                InventoryMovement::create([
-                    'company_id'    => $bill->company_id,
-                    'product_id'    => $product->id,
-                    'warehouse_id'  => $warehouseId,
-                    'batch_id'      => $batchId,
-                    'quantity_base' => $qtyBase,              // +ve
-                    'unit_cost_base' => $rateBase,
-                    'document_type' => 'purchase_bill',
-                    'document_id'   => $bill->id,
-                    'meta'          => ['bill_no' => $bill->bill_no],
-                    'created_by'    => $userId,
+                // Insert reversal in inventory ledger
+                InventoryLedger::create([
+                    'product_id'            => $product->id,
+                    'reference_id'          => $bill->id,
+                    'reference_type'        => 'purchase_reversal',
+                    'qty_in'                => 0,
+                    'qty_out'               => $removedQty,
+                    'qty_balance'           => $newStock,
+                    'unit_cost'             => $removedCost,
+                    'total_cost'            => $removedValue,
+                    'new_weighted_avg_cost' => $newAvg,
                 ]);
             }
-
-            $subtotal     = round($subtotal + $lineSub, 4);
-            $discountTotal = round($discountTotal + $discAmt, 4);
         }
 
-        return ['subtotal' => $subtotal, 'discount_total' => $discountTotal];
+        // 2. Delete old items
+        $bill->items()->delete();
+
+        // 3. Delete old journal entries
+        JournalEntry::where('reference_id', $bill->id)
+            ->where('reference_type', PurchaseBill::class)
+            ->delete();
     }
 
-    private function attachReturnItemsAndMovements(PurchaseReturn $ret, array $items, int $userId): array
+    private function getSetting(int $companyId, string $key, $default)
     {
-        $subtotal = 0.0;
-        $discountTotal = 0.0;
+        $val = DB::table('company_settings')
+            ->where('company_id', $companyId)
+            ->where('key', $key)
+            ->value('value');
+        
+        if ($val === null) return $default;
+        return filter_var($val, FILTER_VALIDATE_BOOLEAN);
+    }
 
-        foreach ($items as $i) {
-            $product   = Product::query()->findOrFail($i['product_id']);
-            $qtyUnit   = ProductUnit::query()->findOrFail($i['qty_unit_id']);
-            $rateUnit  = ProductUnit::query()->findOrFail($i['rate_unit_id']);
+    private function getAccountId(string $name, string $type, int $companyId): int
+    {
+        $account = ChartAccount::where('company_id', $companyId)
+            ->where('name', 'like', "%$name%")
+            ->where('type', 'ledger')
+            ->first();
 
-            $qtyBase   = round((float)$i['qty'] * (float)$qtyUnit->factor, 6);
-            $rateBase  = round(((float)$i['rate_per_unit'] / max((float)$rateUnit->factor, 0.000001)), 6);
-            $lineSub   = round($qtyBase * $rateBase, 4);
-
-            $discAmt   = (float)($i['discount_amount'] ?? 0);
-            $discPct   = (float)($i['discount_percent'] ?? 0);
-            if ($discAmt <= 0 && $discPct > 0) {
-                $discAmt = round($lineSub * ($discPct / 100), 4);
-            }
-            $lineTotal = round($lineSub - $discAmt, 4);
-
-            $batchId = null;
-            $batchNo = Arr::get($i, 'batch_no');
-            $mfg     = Arr::get($i, 'manufactured_at');
-            $exp     = Arr::get($i, 'expired_at');
-
-            if ($batchNo) {
-                $batch = ProductBatch::firstOrCreate(
-                    ['company_id' => $ret->company_id, 'product_id' => $product->id, 'batch_no' => $batchNo],
-                    ['manufactured_at' => $mfg, 'expired_at' => $exp]
-                );
-                if (!$batch->manufactured_at && $mfg) $batch->manufactured_at = $mfg;
-                if (!$batch->expired_at && $exp) $batch->expired_at = $exp;
-                $batch->save();
-                $batchId = $batch->id;
-            }
-
-            $warehouseId = Arr::get($i, 'warehouse_id', $ret->warehouse_id);
-
-            PurchaseReturnItem::create([
-                'company_id'        => $ret->company_id,
-                'purchase_return_id' => $ret->id,
-                'product_id'        => $product->id,
-
-                'qty_unit_id'       => $qtyUnit->id,
-                'qty'               => $i['qty'],
-                'qty_base'          => $qtyBase,
-
-                'rate_unit_id'      => $rateUnit->id,
-                'rate_per_unit'     => $i['rate_per_unit'],
-                'rate_per_base'     => $rateBase,
-
-                'discount_percent'  => $discPct,
-                'discount_amount'   => $discAmt,
-
-                'line_subtotal'     => $lineSub,
-                'line_total'        => $lineTotal,
-
-                'warehouse_id'      => $warehouseId,
-                'batch_id'          => $batchId,
-                'batch_no'          => $batchNo,
-                'manufactured_at'   => $mfg,
-                'expired_at'        => $exp,
+        if (!$account) {
+            $account = ChartAccount::create([
+                'company_id' => $companyId,
+                'name'       => $name,
+                'type'       => 'ledger',
+                'base_type'  => $type,
+                'code'       => 'AUTO-' . rand(1000, 9999),
             ]);
-
-            // Inventory Out (-)
-            if ($this->isStockTracked($product)) {
-                InventoryMovement::create([
-                    'company_id'    => $ret->company_id,
-                    'product_id'    => $product->id,
-                    'warehouse_id'  => $warehouseId,
-                    'batch_id'      => $batchId,
-                    'quantity_base' => -1 * $qtyBase,         // -ve
-                    'unit_cost_base' => $rateBase,
-                    'document_type' => 'purchase_return',
-                    'document_id'   => $ret->id,
-                    'meta'          => ['return_no' => $ret->return_no],
-                    'created_by'    => $userId,
-                ]);
-            }
-
-            $subtotal     = round($subtotal + $lineSub, 4);
-            $discountTotal = round($discountTotal + $discAmt, 4);
         }
 
-        return ['subtotal' => $subtotal, 'discount_total' => $discountTotal];
-    }
-
-    private function isStockTracked(Product $product): bool
-    {
-        return in_array($product->product_type, ['Stock', 'Combo']); // Service/Non-stock typically not tracked
+        return $account->id;
     }
 }

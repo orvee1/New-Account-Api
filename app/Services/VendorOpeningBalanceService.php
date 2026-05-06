@@ -8,8 +8,9 @@ use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use App\Models\Vendor;
 use Carbon\Carbon;
-use Illuminate\Container\Attributes\Auth;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class VendorOpeningBalanceService
 {
@@ -33,7 +34,8 @@ class VendorOpeningBalanceService
         $vendorAdvanceAccount  = $this->getVendorAdvanceAccount($companyId);
 
         if (!$openingBalanceAccount || !$vendorPayableAccount || !$vendorAdvanceAccount) {
-            throw new \Exception('Required chart accounts are missing. Run the ChartAccountSeeder.');
+            Log::warning("Required chart accounts are missing for Vendor Opening Balance. Vendor ID: {$vendor->id}");
+            return null;
         }
 
         $existing = JournalEntry::query()
@@ -128,16 +130,16 @@ class VendorOpeningBalanceService
     private function getOpeningBalanceAdjustmentAccount(int $companyId)
     {
         $openingBalanceAdjustment = ChartAccount::where('company_id', $companyId)
-            ->where('slug', 'opening-balance-adjustment')
-            ->where('type', 'ledger')
+            ->whereIn('slug', ['opening-balance-adjustment', 'opening-balances'])
             ->first();
 
         if (!$openingBalanceAdjustment) {
-            $parent = ChartAccount::where([
-                'slug' => 'others-equity',
-                'type' => 'group',
-                'company_id' => $companyId,
-            ])->first();
+            $parent = ChartAccount::where('company_id', $companyId)
+                ->where('type', 'group')
+                ->where(function($q) {
+                    $q->whereIn('slug', ['others-equity', 'equity'])
+                      ->orWhereIn('name', ['Others Equity', 'Equity']);
+                })->first();
 
             if ($parent) {
                 $openingBalanceAdjustment = ChartAccount::query()->firstOrCreate(
@@ -166,7 +168,7 @@ class VendorOpeningBalanceService
     private function getVendorPayableAccount(int $companyId)
     {
         $vendorPayable = ChartAccount::where('company_id', $companyId)
-            ->where('slug', 'vendor-payable')
+            ->whereIn('slug', ['vendor-payable', 'accounts-payable'])
             ->where('type', 'ledger')
             ->first();
 
@@ -174,7 +176,10 @@ class VendorOpeningBalanceService
             $parent = ChartAccount::query()
                 ->where('company_id', $companyId)
                 ->where('type', 'group')
-                ->whereIn('slug', ['ac-payable', 'a-c-payable'])
+                ->where(function($q) {
+                    $q->whereIn('slug', ['ac-payable', 'a-c-payable', 'accounts-payable', 'vendor-payable'])
+                      ->orWhereIn('name', ['A/C Payable', 'AC Payable', 'Accounts Payable', 'Vendor Payable']);
+                })
                 ->first();
 
             if ($parent) {
@@ -209,11 +214,12 @@ class VendorOpeningBalanceService
             ->first();
 
         if (!$vendorAdvanceAccount) {
-            $parent = ChartAccount::where([
-                'slug' => 'other-current-liabilities',
-                'type' => 'group',
-                'company_id' => $companyId,
-            ])->first();
+            $parent = ChartAccount::where('company_id', $companyId)
+                ->where('type', 'group')
+                ->where(function($q) {
+                    $q->whereIn('slug', ['other-current-liabilities', 'current-liabilities'])
+                      ->orWhereIn('name', ['Other Current Liabilities', 'Current Liabilities']);
+                })->first();
 
             if ($parent) {
                 $vendorAdvanceAccount = ChartAccount::query()->firstOrCreate(

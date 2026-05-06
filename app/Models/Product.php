@@ -14,12 +14,32 @@ class Product extends Model
         'costing_price' => 'decimal:4',
         'sales_price'   => 'decimal:4',
         'tax_percent'   => 'decimal:2',
+        'weighted_avg_cost' => 'decimal:4',
+        'current_stock_in_base_uom' => 'decimal:4',
+        'vat_rate' => 'decimal:2',
+        'vat_inclusive' => 'boolean',
+        'ait_rate' => 'decimal:2',
     ];
 
     // Relations
     public function units()
     {
         return $this->hasMany(ProductUnit::class);
+    }
+
+    public function productUoms()
+    {
+        return $this->hasMany(ProductUom::class);
+    }
+
+    public function baseUom()
+    {
+        return $this->belongsTo(UnitOfMeasure::class, 'base_uom_id');
+    }
+
+    public function inventoryLedger()
+    {
+        return $this->hasMany(InventoryLedger::class);
     }
 
     // For Combo products

@@ -291,6 +291,17 @@ class ChartAccountController extends Controller
         ]);
     }
 
+    public function options(Request $request)
+    {
+        $companyId = $request->user()->company_id;
+        $accounts = ChartAccount::where('company_id', $companyId)
+            ->where('type', 'ledger')
+            ->orderBy('name')
+            ->get(['id', 'name', 'code']);
+
+        return response()->json($accounts);
+    }
+
 
     private function balancesByAccount(int $companyId): array
     {

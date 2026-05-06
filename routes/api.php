@@ -34,6 +34,8 @@ use App\Http\Controllers\Api\SalesOrderController;
 use App\Http\Controllers\Api\SalesInvoiceController;
 use App\Http\Controllers\Api\SalesReturnController;
 use App\Http\Controllers\Api\SalesPaymentController;
+use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\Api\UomController;
 use App\Http\Controllers\Api\TransactionTransferController;
 use App\Http\Controllers\Api\VendorController;
 use App\Http\Controllers\Api\WarehouseController;
@@ -129,6 +131,16 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('accounts/{account}/reconciliations/{reconciliation}', [AccountReconciliationController::class, 'show']);
         Route::delete('accounts/{account}/reconciliations/{reconciliation}', [AccountReconciliationController::class, 'destroy']);
     });
+
+    // Settings
+    Route::get('/settings/sales-form-config', [SettingController::class, 'getSalesFormConfig']);
+    Route::post('/settings/sales-form-config', [SettingController::class, 'updateSalesFormConfig']);
+    Route::get('/settings/purchase-form-config', [SettingController::class, 'getPurchaseFormConfig']);
+    Route::post('/settings/purchase-form-config', [SettingController::class, 'updatePurchaseFormConfig']);
+
+    // Units of Measure
+    Route::get('/units-of-measure', [UomController::class, 'index']);
+    Route::post('/units-of-measure', [UomController::class, 'store']);
 
     // Products
     Route::apiResource('products', ProductController::class);

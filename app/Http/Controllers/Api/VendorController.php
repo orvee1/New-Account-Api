@@ -54,28 +54,30 @@ class VendorController extends Controller
      */
     public function store(StoreVendorRequest $request)
     {
-        $user = $request->user();
-        $data = $request->validated();
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($request) {
+            $user = $request->user();
+            $data = $request->validated();
 
-        // tenancy & audit
-        $data['company_id'] = $user->company_id;
-        $data['created_by'] = $user->id;
-        $data['updated_by'] = $user->id;
+            // tenancy & audit
+            $data['company_id'] = $user->company_id;
+            $data['created_by'] = $user->id;
+            $data['updated_by'] = $user->id;
 
-        $vendor = Vendor::create($data);
+            $vendor = Vendor::create($data);
 
-        $vendorAccount = $this->partyAccounts->createVendorAccount($vendor);
-        if ($vendorAccount) {
-            $vendor->chart_account_id = $vendorAccount->id;
-            $vendor->saveQuietly();
-        }
+            $vendorAccount = $this->partyAccounts->createVendorAccount($vendor);
+            if ($vendorAccount) {
+                $vendor->chart_account_id = $vendorAccount->id;
+                $vendor->saveQuietly();
+            }
 
-        // 🔥 CREATE OPENING BALANCE JOURNAL (Vendor)
-        if ($vendor->opening_balance > 0 && in_array($vendor->opening_balance_type, ['debit', 'credit'])) {
-            $this->openingService->createOpeningBalanceJournal($vendor);
-        }
+            // 🔥 CREATE OPENING BALANCE JOURNAL (Vendor)
+            if ($vendor->opening_balance > 0 && in_array($vendor->opening_balance_type, ['debit', 'credit'])) {
+                $this->openingService->createOpeningBalanceJournal($vendor);
+            }
 
-        return new VendorResource($vendor);
+            return new VendorResource($vendor);
+        });
     }
 
     /**

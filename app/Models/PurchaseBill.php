@@ -17,9 +17,28 @@ class PurchaseBill extends Model
     // ];
 
     protected $fillable = [
-        'company_id','vendor_id','bill_no','bill_date','due_date',
-        'warehouse_id','notes','subtotal','discount_total',
-        'tax_amount','total_amount','created_by'
+        'company_id',
+        'vendor_id',
+        'bill_no',
+        'bill_date',
+        'due_date',
+        'warehouse_id',
+        'notes',
+        'supplier_ref_no',
+        'vat_mode',
+        'subtotal',
+        'trade_discount_amt',
+        'line_discount_amt',
+        'taxable_amount',
+        'vat_amount',
+        'ait_amount',
+        'bill_discount_amt',
+        'bill_discount_account_id',
+        'total_amount',
+        'payment_status',
+        'status',
+        'created_by',
+        'updated_by'
     ];
 
     protected $casts = [
@@ -29,6 +48,7 @@ class PurchaseBill extends Model
 
     public function vendor(){ return $this->belongsTo(Vendor::class); }
     public function items(){ return $this->hasMany(PurchaseBillItem::class); }
+    public function billDiscountAccount(){ return $this->belongsTo(ChartAccount::class, 'bill_discount_account_id'); }
 
     public function payment()
     {

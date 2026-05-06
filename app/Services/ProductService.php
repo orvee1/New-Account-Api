@@ -33,6 +33,11 @@ class ProductService
             'costing_price' => $data['costing_price'] ?? null,
             'sales_price'   => $data['sales_price'] ?? null,
             'tax_percent'   => $data['tax_percent'] ?? null,
+            
+            'vat_rate'      => $data['vat_rate'] ?? 0,
+            'vat_inclusive' => $data['vat_inclusive'] ?? false,
+            'ait_rate'      => $data['ait_rate'] ?? 0,
+            'base_uom_id'   => $data['base_uom_id'] ?? null,
 
             'manufactured_at' => $data['manufactured_at'] ?? null,
             'expired_at'      => $data['expired_at'] ?? null,
@@ -54,6 +59,36 @@ class ProductService
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
                 ]);
+            }
+        }
+
+        // product_uoms (replace set)
+        if (!empty($data['product_uoms'])) {
+            $product->productUoms()->delete();
+            foreach ($data['product_uoms'] as $uomData) {
+                $uomId = $uomData['uom_id'] ?? null;
+
+                if (!$uomId && !empty($uomData['name'])) {
+                    $uom = \App\Models\UnitOfMeasure::firstOrCreate(
+                        ['name' => $uomData['name']],
+                        ['symbol' => $uomData['symbol'] ?? '']
+                    );
+                    $uomId = $uom->id;
+                }
+
+                if ($uomId) {
+                    $product->productUoms()->create([
+                        'uom_id'              => $uomId,
+                        'conversion_factor'   => $uomData['conversion_factor'],
+                        'sale_price'          => $uomData['sale_price'],
+                        'is_base_uom'         => $uomData['is_base_uom'],
+                        'is_default_sale_uom' => $uomData['is_default_sale_uom'],
+                    ]);
+
+                    if ($uomData['is_base_uom']) {
+                        $product->update(['base_uom_id' => $uomId]);
+                    }
+                }
             }
         }
 
@@ -115,6 +150,12 @@ class ProductService
             'costing_price' => $data['costing_price'] ?? $product->costing_price,
             'sales_price'   => $data['sales_price']   ?? $product->sales_price,
             'tax_percent'   => $data['tax_percent']   ?? $product->tax_percent,
+            
+            'vat_rate'      => $data['vat_rate']      ?? $product->vat_rate,
+            'vat_inclusive' => $data['vat_inclusive'] ?? $product->vat_inclusive,
+            'ait_rate'      => $data['ait_rate']      ?? $product->ait_rate,
+            'base_uom_id'   => $data['base_uom_id']   ?? $product->base_uom_id,
+
             'manufactured_at' => $data['manufactured_at'] ?? null,
             'expired_at'      => $data['expired_at'] ?? null,
             'has_warranty'    => $data['has_warranty']  ?? $product->has_warranty,
@@ -133,6 +174,35 @@ class ProductService
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
                 ]);
+            }
+        }
+
+        if (array_key_exists('product_uoms', $data)) {
+            $product->productUoms()->delete();
+            foreach (($data['product_uoms'] ?? []) as $uomData) {
+                $uomId = $uomData['uom_id'] ?? null;
+
+                if (!$uomId && !empty($uomData['name'])) {
+                    $uom = \App\Models\UnitOfMeasure::firstOrCreate(
+                        ['name' => $uomData['name']],
+                        ['symbol' => $uomData['symbol'] ?? '']
+                    );
+                    $uomId = $uom->id;
+                }
+
+                if ($uomId) {
+                    $product->productUoms()->create([
+                        'uom_id'              => $uomId,
+                        'conversion_factor'   => $uomData['conversion_factor'],
+                        'sale_price'          => $uomData['sale_price'],
+                        'is_base_uom'         => $uomData['is_base_uom'],
+                        'is_default_sale_uom' => $uomData['is_default_sale_uom'],
+                    ]);
+
+                    if ($uomData['is_base_uom']) {
+                        $product->update(['base_uom_id' => $uomId]);
+                    }
+                }
             }
         }
 
@@ -155,7 +225,7 @@ class ProductService
         /** @var Builder $q */
         $q = Product::query()->where('company_id', auth('sanctum')->user()->company_id);
         // Only load units - comboItems relationship has schema issues
-        $q->with(['units']); // Removed: 'comboItems.itemProduct'
+        $q->with(['units', 'productUoms.uom']); // Removed: 'comboItems.itemProduct'
 
         $q->when(!empty($filters['q']), function (Builder $qr) use ($filters) {
             $term = $filters['q'];

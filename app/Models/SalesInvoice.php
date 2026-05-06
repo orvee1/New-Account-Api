@@ -20,6 +20,15 @@ class SalesInvoice extends Model
         'notes',
         'status',
         'subtotal',
+        'trade_discount_amt',
+        'line_discount_amt',
+        'taxable_amount',
+        'vat_amount',
+        'ait_amount',
+        'invoice_discount_amt',
+        'invoice_discount_account_id',
+        'grand_total',
+        'vat_mode',
         'discount_total',
         'tax_amount',
         'total_amount',
@@ -31,6 +40,13 @@ class SalesInvoice extends Model
         'invoice_date' => 'date',
         'due_date' => 'date',
         'subtotal' => 'decimal:2',
+        'trade_discount_amt' => 'decimal:2',
+        'line_discount_amt' => 'decimal:2',
+        'taxable_amount' => 'decimal:2',
+        'vat_amount' => 'decimal:2',
+        'ait_amount' => 'decimal:2',
+        'invoice_discount_amt' => 'decimal:2',
+        'grand_total' => 'decimal:2',
         'discount_total' => 'decimal:2',
         'tax_amount' => 'decimal:2',
         'total_amount' => 'decimal:2',
@@ -38,6 +54,15 @@ class SalesInvoice extends Model
     ];
 
     // Relationships
+    public function journalEntries()
+    {
+        return $this->hasMany(SalesJournalEntry::class, 'invoice_id');
+    }
+
+    public function invoiceDiscountAccount()
+    {
+        return $this->belongsTo(ChartAccount::class, 'invoice_discount_account_id');
+    }
     public function company()
     {
         return $this->belongsTo(Company::class);

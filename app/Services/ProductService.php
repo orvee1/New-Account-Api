@@ -49,7 +49,6 @@ class ProductService
             $product->units()->delete();
             foreach ($data['units'] as $u) {
                 $product->units()->create([
-                    'company_id'    => auth('sanctum')->user()->company_id,
                     'name'    => $u['name'],
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],
@@ -128,7 +127,6 @@ class ProductService
             $product->units()->delete();
             foreach (($data['units'] ?? []) as $u) {
                 $product->units()->create([
-                    'company_id' => auth('sanctum')->user()->company_id,
                     'name'    => $u['name'],
                     'factor'  => $u['factor'],
                     'is_base' => $u['is_base'],

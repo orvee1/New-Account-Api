@@ -18,6 +18,7 @@
 </head>
 
 <body class="font-sans antialiased">
+    @php($menus = $menus ?? collect())
 
     <!-- Page Content -->
     <div class="w-screen h-screen flex bg-gray-100" x-data="{ navigationTrigger: false }">

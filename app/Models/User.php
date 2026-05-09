@@ -21,9 +21,10 @@ class User extends Authenticatable implements MustVerifyEmail,CanResetPassword
     protected $fillable = [
         'name',
         'email',
-        'phone',
+        'phone_number',
         'password',
-        'phone',
+        'email_verified_at',
+        'remember_token',
     ];
 
     public function companies()

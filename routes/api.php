@@ -48,11 +48,15 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::post('/register', [RegisterController::class, 'register']);
-Route::post('/login', [LoginController::class, 'login']);
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/register', [RegisterController::class, 'register']);
+    Route::post('/login', [LoginController::class, 'login']);
+});
 
-Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
-Route::post('password/reset', [ResetPasswordController::class, 'reset']);
+Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP'])
+    ->middleware('throttle:3,1');
+Route::post('password/reset', [ResetPasswordController::class, 'reset'])
+    ->middleware('throttle:5,1');
 
 /*
 |--------------------------------------------------------------------------

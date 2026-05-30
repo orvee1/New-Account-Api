@@ -15,19 +15,22 @@ trait SendSms
 {
     private function getSmsBodyDataAsArray($numbers_separate_by_coma, $text_message, $uuid = null)
     {
+        $username = env('SMS_USERNAME');
+        $password = env('SMS_PASSWORD');
+
         return array(
-            'username'      => "Genesis",
-            'password'      => "Genes!s@12",
-            'apicode'       => "5",
+            'username'      => $username,
+            'password'      => $password,
+            'apicode'       => env('SMS_API_CODE', '5'),
             'msisdn'        => [
                 $numbers_separate_by_coma
             ],
-            'countrycode'   => "880",
-            'cli'           => "Genesis",
+            'countrycode'   => env('SMS_COUNTRY_CODE', '880'),
+            'cli'           => env('SMS_CLI', 'Genesis'),
             'messagetype'   => preg_match('/^[a-z0-9 .\-]+$/i',  $text_message) ? '1' : '3',
             'message'       => $text_message,
             'clienttransid' => $uuid ?? uniqid(),
-            'bill_msisdn'   => "8801969901099",
+            'bill_msisdn'   => env('SMS_BILL_MSISDN'),
             'tran_type'     => "T",
             'request_type'  => "S",
         );
@@ -36,17 +39,20 @@ trait SendSms
     // bulk sms send option
     private function getBulkSmsBodyDataAsArray($number_array, $text_message)
     {
+        $username = env('SMS_USERNAME');
+        $password = env('SMS_PASSWORD');
+
         return array(
-            'username'      => "Genesis",
-            'password'      => "Genes!s@12",
-            'apicode'       => "5",
+            'username'      => $username,
+            'password'      => $password,
+            'apicode'       => env('SMS_API_CODE', '5'),
             'msisdn'        => $number_array, // array number limit 999
-            'countrycode'   => "880",
-            'cli'           => "Genesis",
+            'countrycode'   => env('SMS_COUNTRY_CODE', '880'),
+            'cli'           => env('SMS_CLI', 'Genesis'),
             'messagetype'   => preg_match('/^[a-z0-9 .\-]+$/i',  $text_message) ? '1' : '3',
             'message'       => $text_message,
             'clienttransid' => uniqid(),
-            'bill_msisdn'   => "8801969901099",
+            'bill_msisdn'   => env('SMS_BILL_MSISDN'),
             'tran_type'     => "P", // Promotional
             'request_type'  => "B", // Bulk 
         );
@@ -55,12 +61,16 @@ trait SendSms
     private function callApiGetStatusCode($postvars)
     {
         try {
+            if (empty($postvars['username']) || empty($postvars['password'])) {
+                return 'sms_not_configured';
+            }
+
             $headers = [
                 'Accept'        => 'application/json',
                 'Content-Type'  => 'application/json'
             ];
     
-            $url = "https://corpsms.banglalink.net/bl/api/v1/smsapigw/";
+            $url = env('SMS_GATEWAY_URL', "https://corpsms.banglalink.net/bl/api/v1/smsapigw/");
     
             $response = Http::withHeaders($headers)
                 ->post($url, $postvars);

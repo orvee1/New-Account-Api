@@ -75,8 +75,21 @@ class SmsLog extends Model
 
     public function save(array $options = [])
     {
+        $baseUrl = rtrim((string) env('SMS_DELIVERY_STATUS_URL', ''), '/');
+        $username = env('SMS_DELIVERY_STATUS_USER');
+        $password = env('SMS_DELIVERY_STATUS_PASSWORD');
+
+        if ($baseUrl === '' || empty($username) || empty($password) || empty($this->job_id)) {
+            return parent::save($options);
+        }
+
         $cUrl = curl_init();
-        curl_setopt($cUrl, CURLOPT_URL, "http://sms4.digitalsynapsebd.com/api/mt/GetDelivery?user=genesispg&password=123321@12&jobid=$this->job_id");
+        $query = http_build_query([
+            'user' => $username,
+            'password' => $password,
+            'jobid' => $this->job_id,
+        ]);
+        curl_setopt($cUrl, CURLOPT_URL, "{$baseUrl}?{$query}");
         curl_setopt($cUrl, CURLOPT_RETURNTRANSFER, 1);
         curl_setopt(
             $cUrl,

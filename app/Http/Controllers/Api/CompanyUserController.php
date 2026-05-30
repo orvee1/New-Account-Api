@@ -14,13 +14,14 @@ class CompanyUserController extends Controller
 {
     public function index(Request $request)
     {
+        $authUser = $this->authorizeCompanyUserManagement($request, allowRead: true);
         $perPage = (int) $request->input('per_page', 20);
         $perPage = max(5, min(200, $perPage));
 
         $query = CompanyUser::query()
             ->with('company:id,name')
+            ->where('company_id', $authUser->company_id)
             ->when($request->filled('q'), fn ($q) => $q->search($request->q))
-            ->when($request->filled('company_id'), fn ($q) => $q->forCompany($request->company_id))
             ->when($request->filled('role') && $request->role !== 'all', fn ($q) => $q->role($request->role))
             ->when($request->filled('status') && $request->status !== 'all', fn ($q) => $q->where('status', $request->status))
             ->latest('id');
@@ -48,14 +49,16 @@ class CompanyUserController extends Controller
 
     public function store(Request $request)
     {
+        $authUser = $this->authorizeCompanyUserManagement($request);
+        $companyId = $authUser->company_id;
+
         $emailUnique = Rule::unique('company_users', 'email')
-            ->where(fn ($q) => $q->where('company_id', $request->input('company_id')));
+            ->where(fn ($q) => $q->where('company_id', $companyId));
 
         $phoneUnique = Rule::unique('company_users', 'phone_number')
-            ->where(fn ($q) => $q->where('company_id', $request->input('company_id')));
+            ->where(fn ($q) => $q->where('company_id', $companyId));
 
         $data = $request->validate([
-            'company_id'   => ['required', 'exists:companies,id'],
             'name'         => ['required', 'string', 'max:255'],
             'email'        => ['nullable', 'email', 'max:191', $emailUnique],
             'photo'        => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif', 'max:2048'],
@@ -66,6 +69,8 @@ class CompanyUserController extends Controller
             'is_primary'   => ['sometimes', 'boolean'],
             'permissions'  => ['nullable'], // array|string
         ]);
+
+        $data['company_id'] = $companyId;
 
         // Single owner per company
         if (($data['role'] ?? null) === 'owner') {
@@ -120,6 +125,8 @@ class CompanyUserController extends Controller
 
     public function show(CompanyUser $companyUser)
     {
+        $this->authorizeCompanyUserManagement(request(), $companyUser, allowRead: true);
+
         return response()->json([
             'data' => $companyUser->load('company:id,name')->toArray(),
         ], 200);
@@ -127,16 +134,18 @@ class CompanyUserController extends Controller
 
     public function update(Request $request, CompanyUser $companyUser)
     {
+        $authUser = $this->authorizeCompanyUserManagement($request, $companyUser);
+        $companyId = $authUser->company_id;
+
         $emailUnique = Rule::unique('company_users', 'email')
-            ->where(fn ($q) => $q->where('company_id', $request->input('company_id')))
+            ->where(fn ($q) => $q->where('company_id', $companyId))
             ->ignore($companyUser->id);
 
         $phoneUnique = Rule::unique('company_users', 'phone_number')
-            ->where(fn ($q) => $q->where('company_id', $request->input('company_id')))
+            ->where(fn ($q) => $q->where('company_id', $companyId))
             ->ignore($companyUser->id);
 
         $data = $request->validate([
-            'company_id'   => ['required', 'exists:companies,id'],
             'name'         => ['required', 'string', 'max:255'],
             'email'        => ['nullable', 'email', 'max:191', $emailUnique],
             'photo'        => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp,avif', 'max:2048'],
@@ -148,6 +157,8 @@ class CompanyUserController extends Controller
             'is_primary'   => ['sometimes', 'boolean'],
             'permissions'  => ['nullable'], // array|string
         ]);
+
+        $data['company_id'] = $companyId;
 
         // Owner constraints
         if (($data['role'] ?? null) === 'owner') {
@@ -233,6 +244,8 @@ class CompanyUserController extends Controller
      */
     public function destroy(CompanyUser $companyUser)
     {
+        $this->authorizeCompanyUserManagement(request(), $companyUser);
+
         // Prevent deleting last Owner
         if ($companyUser->role === 'owner') {
             $otherOwners = CompanyUser::where('company_id', $companyUser->company_id)
@@ -260,6 +273,7 @@ class CompanyUserController extends Controller
      */
     public function toggleStatus(CompanyUser $companyUser)
     {
+        $this->authorizeCompanyUserManagement(request(), $companyUser);
         $next = $companyUser->status === 'active' ? 'inactive' : 'active';
         $payload = ['status' => $next];
 
@@ -280,6 +294,7 @@ class CompanyUserController extends Controller
      */
     public function makePrimary(CompanyUser $companyUser)
     {
+        $this->authorizeCompanyUserManagement(request(), $companyUser);
         $companyUser->update(['is_primary' => true]);
 
         CompanyUser::where('company_id', $companyUser->company_id)
@@ -290,5 +305,24 @@ class CompanyUserController extends Controller
             'data' => $companyUser->toArray(),
             'message' => 'Marked as primary user for this company.',
         ], 200);
+    }
+
+    private function authorizeCompanyUserManagement(Request $request, ?CompanyUser $companyUser = null, bool $allowRead = false): CompanyUser
+    {
+        /** @var CompanyUser|null $authUser */
+        $authUser = $request->user();
+
+        abort_unless($authUser instanceof CompanyUser, 403, 'Unauthorized.');
+
+        $canManage = in_array($authUser->role, ['owner', 'admin'], true);
+        $canRead = $allowRead && in_array($authUser->role, ['owner', 'admin'], true);
+
+        abort_unless($canManage || $canRead, 403, 'Forbidden.');
+
+        if ($companyUser) {
+            abort_unless($companyUser->company_id === $authUser->company_id, 403, 'Forbidden.');
+        }
+
+        return $authUser;
     }
 }

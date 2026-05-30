@@ -18,7 +18,7 @@ class ResetPasswordController extends Controller
     {
 
         $request->validate([
-            'phone' => 'required|exists:users,phone',
+            'phone' => 'required|digits:11',
             'otp' => 'required|numeric',
             'password' => 'required|min:8|confirmed',
         ]);
@@ -33,7 +33,7 @@ class ResetPasswordController extends Controller
         }
 
 
-        $user = User::where('phone', $request->phone)->first();
+        $user = User::where('phone_number', $request->phone)->first();
 
         if (!$user) {
             return response()->json([

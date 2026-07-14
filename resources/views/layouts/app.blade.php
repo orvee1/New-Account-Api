@@ -114,7 +114,7 @@
                 </li>
                 @endhasanyrole
 
-                @foreach ($menus as $menu)
+                @foreach (($menus ?? []) as $menu)
                 @can($menu->permission)
                 <li class="pl-2 font-semibold">
                     <a href="{{ count($menu->submenu) ? '#' : url($menu->url) }}" onclick="submenuToggle(this)"

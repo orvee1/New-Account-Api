@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ChartAccountController;
 use App\Http\Controllers\Api\CompanyUserController;
 use App\Http\Controllers\Api\CustomerController;
 use App\Http\Controllers\Api\CreditNoteController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\DebitNoteController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\FixedAssetController;
@@ -49,11 +50,15 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::post('/register', [RegisterController::class, 'register']);
-Route::post('/login', [LoginController::class, 'login']);
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/register', [RegisterController::class, 'register']);
+    Route::post('/login', [LoginController::class, 'login']);
+});
 
-Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP']);
-Route::post('password/reset', [ResetPasswordController::class, 'reset']);
+Route::post('password/forgot', [ForgotPasswordController::class, 'sendResetOTP'])
+    ->middleware('throttle:3,1');
+Route::post('password/reset', [ResetPasswordController::class, 'reset'])
+    ->middleware('throttle:5,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -199,6 +204,8 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('cash-flow', [ReportController::class, 'cashFlow']);
         Route::get('vendor-ledger', [ReportController::class, 'vendorLedger']);
     });
+
+    Route::get('dashboard/summary', [DashboardController::class, 'summary']);
 
     // ===== Payroll Management =====
     // Employees

@@ -20,8 +20,10 @@ class PurchaseBillController extends Controller
             ->with(['vendor'])
             ->when($req->filled('q'), function($qq) use ($req) {
                 $keyword = "%{$req->q}%";
-                $qq->where('bill_no','like',$keyword)
-                   ->orWhereHas('vendor', fn($v)=> $v->where('name','like',$keyword));
+                $qq->where(function ($query) use ($keyword) {
+                    $query->where('bill_no', 'like', $keyword)
+                        ->orWhereHas('vendor', fn($v) => $v->where('name', 'like', $keyword));
+                });
             })
             ->when($req->filled('vendor_id'), fn($qq)=> $qq->where('vendor_id',$req->integer('vendor_id')))
             ->when($req->filled('date_from'), fn($qq)=> $qq->whereDate('bill_date','>=',$req->date('date_from')))

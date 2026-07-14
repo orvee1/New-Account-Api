@@ -15,7 +15,18 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // User::factory(10)->create();
+        User::unguarded(function () {
+            User::updateOrCreate(
+                ['id' => 1],
+                [
+                    'name' => 'System User',
+                    'email' => 'system@example.test',
+                    'phone_number' => '00000000000',
+                    'password' => Hash::make('password'),
+                    'email_verified_at' => now(),
+                ]
+            );
+        });
 
         // Create company first
         if (class_exists(\Database\Seeders\CompanySeeder::class)) {

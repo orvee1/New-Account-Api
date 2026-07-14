@@ -3,13 +3,15 @@
 namespace App\Services;
 
 use App\Models\Product;
+use App\Models\ProductBatch;
+use App\Models\ProductUnit;
 use App\Models\ProductUom;
 use App\Models\PurchaseBill;
 use App\Models\PurchaseBillItem;
+use App\Models\PurchaseReturn;
+use App\Models\PurchaseReturnItem;
 use App\Models\InventoryLedger;
-use App\Models\JournalEntry;
-use App\Models\JournalLine;
-use App\Models\ChartAccount;
+use App\Models\InventoryMovement;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,9 +19,18 @@ use Exception;
 
 class PurchaseService
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function createBill(array $payload, int $userId): PurchaseBill
     {
-        $companyId = Auth::guard('sanctum')->user()->company_id ?? 1;
+        $companyId = Auth::guard('sanctum')->user()?->company_id ?? Auth::user()?->company_id;
+
+        if (! $companyId) {
+            throw new Exception('Authenticated company context is required.');
+        }
 
         return DB::transaction(function () use ($payload, $userId, $companyId) {
             // 0. Get Settings
@@ -78,9 +89,16 @@ class PurchaseService
         ];
 
         foreach ($items as $itemData) {
-            $product = Product::findOrFail($itemData['product_id']);
-            $purchaseUom = ProductUom::findOrFail($itemData['purchase_uom_id']);
-            $priceUom = ProductUom::findOrFail($itemData['price_uom_id']);
+            $product = Product::query()
+                ->where('company_id', $bill->company_id)
+                ->lockForUpdate()
+                ->findOrFail($itemData['product_id']);
+            $purchaseUom = ProductUom::query()
+                ->where('product_id', $product->id)
+                ->findOrFail($itemData['purchase_uom_id']);
+            $priceUom = ProductUom::query()
+                ->where('product_id', $product->id)
+                ->findOrFail($itemData['price_uom_id']);
 
             $quantity = (float)$itemData['quantity'];
             $unitPrice = (float)$itemData['unit_price'];
@@ -89,7 +107,7 @@ class PurchaseService
             $qtyInBase = $quantity * (float)$purchaseUom->conversion_factor;
             $pricePerBaseUnit = $unitPrice / (float)$priceUom->conversion_factor;
             $unitPriceOriginal = $pricePerBaseUnit * (float)$purchaseUom->conversion_factor;
-            $lineGrossAmount = $quantity * unitPriceOriginal;
+            $lineGrossAmount = $quantity * $unitPriceOriginal;
 
             // Discounts
             $tradeDiscountPct = (float)Arr::get($itemData, 'trade_discount_pct', 0);
@@ -199,96 +217,94 @@ class PurchaseService
         return $totals;
     }
 
-    private function generateJournalEntries(PurchaseBill $bill, bool $isVatRegistered)
+    private function generateJournalEntries(PurchaseBill $bill, bool $isVatRegistered): void
     {
-        $companyId = $bill->company_id;
-        
-        $journalEntry = JournalEntry::create([
-            'company_id'     => $companyId,
-            'reference_id'   => $bill->id,
-            'reference_type' => PurchaseBill::class,
-            'entry_date'     => $bill->bill_date,
-            'description'    => "Purchase Bill #{$bill->bill_no}",
-            'created_by'     => Auth::id() ?? $bill->created_by,
-        ]);
+        $bill->loadMissing('items.product');
 
-        $inventoryAccountId = config('coa_map.inventory') ?? $this->getAccountId('Inventory', 'asset', $companyId);
-        $apAccountId = config('coa_map.accounts_payable') ?? $this->getAccountId('Accounts Payable', 'liability', $companyId);
-        $vatReceivableAccountId = $this->getAccountId('Input VAT Receivable', 'asset', $companyId);
-        $aitPayableAccountId = $this->getAccountId('AIT Payable', 'liability', $companyId);
-        $purchaseDiscountAccountId = $bill->bill_discount_account_id ?? $this->getAccountId('Purchase Discount', 'income', $companyId);
+        $inventoryDebit = 0.0;
+        $inputVatDebit = 0.0;
+        $aitCredit = 0.0;
 
         foreach ($bill->items as $item) {
-            // DR Inventory
-            $inventoryDr = $isVatRegistered ? $item->line_subtotal : ($item->line_subtotal + $item->vat_amount);
-            JournalLine::create([
-                'journal_entry_id' => $journalEntry->id,
-                'company_id'       => $companyId,
-                'account_id'       => $inventoryAccountId,
-                'debit'            => $inventoryDr,
-                'credit'           => 0,
-                'narration'        => "Inventory Purchase - {$item->product->name}",
-            ]);
+            $lineSubtotal = (float) $item->line_subtotal;
+            $vatAmount = (float) $item->vat_amount;
 
-            // DR Input VAT (if registered)
-            if ($isVatRegistered && $item->vat_amount > 0) {
-                JournalLine::create([
-                    'journal_entry_id' => $journalEntry->id,
-                    'company_id'       => $companyId,
-                    'account_id'       => $vatReceivableAccountId,
-                    'debit'            => $item->vat_amount,
-                    'credit'           => 0,
-                    'narration'        => "Input VAT on Purchase - {$item->product->name}",
-                ]);
+            if ($isVatRegistered) {
+                $inventoryDebit += $bill->vat_mode === 'inclusive'
+                    ? max(0, $lineSubtotal - $vatAmount)
+                    : $lineSubtotal;
+                $inputVatDebit += $vatAmount;
+            } else {
+                $inventoryDebit += $bill->vat_mode === 'inclusive'
+                    ? $lineSubtotal
+                    : $lineSubtotal + $vatAmount;
             }
 
-            // CR Accounts Payable
-            // AP = (line_subtotal + vat_exclusive) - ait
-            $itemApAmount = $item->line_subtotal + ($bill->vat_mode === 'exclusive' ? $item->vat_amount : 0) - $item->ait_amount;
-            JournalLine::create([
-                'journal_entry_id' => $journalEntry->id,
-                'company_id'       => $companyId,
-                'account_id'       => $apAccountId,
-                'debit'            => 0,
-                'credit'           => $itemApAmount,
-                'narration'        => "Payable to Vendor for {$item->product->name}",
-            ]);
+            $aitCredit += (float) $item->ait_amount;
+        }
 
-            // CR AIT Payable
-            if ($item->ait_amount > 0) {
-                JournalLine::create([
-                    'journal_entry_id' => $journalEntry->id,
-                    'company_id'       => $companyId,
-                    'account_id'       => $aitPayableAccountId,
-                    'debit'            => 0,
-                    'credit'           => $item->ait_amount,
-                    'narration'        => "AIT Payable on Purchase - {$item->product->name}",
-                ]);
+        $lines = [];
+        if (round($inventoryDebit, 2) > 0) {
+            $lines[] = [
+                'key' => 'inventory',
+                'debit' => round($inventoryDebit, 2),
+                'credit' => 0,
+                'narration' => "Inventory purchase {$bill->bill_no}",
+            ];
+        }
+
+        if (round($inputVatDebit, 2) > 0) {
+            $lines[] = [
+                'key' => 'input_vat_receivable',
+                'debit' => round($inputVatDebit, 2),
+                'credit' => 0,
+                'narration' => "Input VAT on purchase {$bill->bill_no}",
+            ];
+        }
+
+        if ((float) $bill->total_amount > 0) {
+            $lines[] = [
+                'key' => 'accounts_payable',
+                'debit' => 0,
+                'credit' => round((float) $bill->total_amount, 2),
+                'narration' => "Vendor payable {$bill->bill_no}",
+            ];
+        }
+
+        if (round($aitCredit, 2) > 0) {
+            $lines[] = [
+                'key' => 'ait_payable',
+                'debit' => 0,
+                'credit' => round($aitCredit, 2),
+                'narration' => "AIT payable {$bill->bill_no}",
+            ];
+        }
+
+        if ((float) $bill->bill_discount_amt > 0) {
+            $discountLine = [
+                'debit' => 0,
+                'credit' => round((float) $bill->bill_discount_amt, 2),
+                'narration' => "Purchase discount {$bill->bill_no}",
+            ];
+
+            if ($bill->bill_discount_account_id) {
+                $discountLine['account_id'] = $bill->bill_discount_account_id;
+            } else {
+                $discountLine['key'] = 'purchase_discount';
             }
+
+            $lines[] = $discountLine;
         }
 
-        // Bill level discount
-        if ($bill->bill_discount_amt > 0) {
-            // DR Accounts Payable
-            JournalLine::create([
-                'journal_entry_id' => $journalEntry->id,
-                'company_id'       => $companyId,
-                'account_id'       => $apAccountId,
-                'debit'            => $bill->bill_discount_amt,
-                'credit'           => 0,
-                'narration'        => "Bill Discount applied",
-            ]);
-
-            // CR Purchase Discount
-            JournalLine::create([
-                'journal_entry_id' => $journalEntry->id,
-                'company_id'       => $companyId,
-                'account_id'       => $purchaseDiscountAccountId,
-                'debit'            => 0,
-                'credit'           => $bill->bill_discount_amt,
-                'narration'        => "Purchase Discount income",
-            ]);
-        }
+        $this->postingService->post([
+            'company_id' => $bill->company_id,
+            'reference_type' => PurchaseBill::class,
+            'reference_id' => $bill->id,
+            'entry_date' => $bill->bill_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Purchase Bill #{$bill->bill_no}",
+            'created_by' => Auth::id() ?? $bill->created_by,
+            'lines' => $lines,
+        ]);
     }
 
     public function updateBill(PurchaseBill $bill, array $payload): PurchaseBill
@@ -398,9 +414,121 @@ class PurchaseService
         $bill->items()->delete();
 
         // 3. Delete old journal entries
-        JournalEntry::where('reference_id', $bill->id)
-            ->where('reference_type', PurchaseBill::class)
-            ->delete();
+        $this->postingService->deleteForReference($bill->company_id, PurchaseBill::class, $bill->id);
+    }
+
+    public function createReturn(array $payload, int $userId): PurchaseReturn
+    {
+        $companyId = Auth::guard('sanctum')->user()?->company_id ?? Auth::user()?->company_id;
+
+        if (! $companyId) {
+            throw new Exception('Authenticated company context is required.');
+        }
+
+        return DB::transaction(function () use ($payload, $userId, $companyId) {
+            $return = PurchaseReturn::create([
+                'company_id'   => $companyId,
+                'vendor_id'    => $payload['vendor_id'],
+                'return_no'    => $payload['return_no'],
+                'return_date'  => $payload['return_date'],
+                'warehouse_id' => Arr::get($payload, 'warehouse_id'),
+                'notes'        => Arr::get($payload, 'notes'),
+                'tax_amount'   => (float) Arr::get($payload, 'tax_amount', 0),
+                'created_by'   => $userId,
+            ]);
+
+            $totals = $this->attachReturnItemsAndMovements($return, $payload['items'], $userId);
+
+            $return->update([
+                'subtotal'       => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'total_amount'   => $totals['subtotal'] - $totals['discount_total'] + (float) $return->tax_amount,
+                'updated_by'     => $userId,
+            ]);
+
+            return $return->load(['vendor', 'items.product']);
+        });
+    }
+
+    private function attachReturnItemsAndMovements(PurchaseReturn $return, array $items, int $userId): array
+    {
+        $subtotal = 0.0;
+        $discountTotal = 0.0;
+
+        foreach ($items as $item) {
+            $product = Product::query()
+                ->where('company_id', $return->company_id)
+                ->lockForUpdate()
+                ->findOrFail($item['product_id']);
+            $qtyUnit = ProductUnit::query()->findOrFail($item['qty_unit_id']);
+            $rateUnit = ProductUnit::query()->findOrFail($item['rate_unit_id']);
+
+            $qtyBase = round((float) $item['qty'] * (float) $qtyUnit->factor, 6);
+            $rateBase = round(((float) $item['rate_per_unit'] / max((float) $rateUnit->factor, 0.000001)), 6);
+            $lineSubtotal = round($qtyBase * $rateBase, 4);
+
+            $discountAmount = (float) ($item['discount_amount'] ?? 0);
+            $discountPercent = (float) ($item['discount_percent'] ?? 0);
+            if ($discountAmount <= 0 && $discountPercent > 0) {
+                $discountAmount = round($lineSubtotal * ($discountPercent / 100), 4);
+            }
+
+            $batchId = null;
+            $batchNo = Arr::get($item, 'batch_no');
+            $manufacturedAt = Arr::get($item, 'manufactured_at');
+            $expiredAt = Arr::get($item, 'expired_at');
+
+            if ($batchNo) {
+                $batch = ProductBatch::firstOrCreate(
+                    ['company_id' => $return->company_id, 'product_id' => $product->id, 'batch_no' => $batchNo],
+                    ['manufactured_at' => $manufacturedAt, 'expired_at' => $expiredAt]
+                );
+                $batchId = $batch->id;
+            }
+
+            $warehouseId = Arr::get($item, 'warehouse_id', $return->warehouse_id);
+
+            PurchaseReturnItem::create([
+                'company_id' => $return->company_id,
+                'purchase_return_id' => $return->id,
+                'product_id' => $product->id,
+                'qty_unit_id' => $qtyUnit->id,
+                'qty' => $item['qty'],
+                'qty_base' => $qtyBase,
+                'rate_unit_id' => $rateUnit->id,
+                'rate_per_unit' => $item['rate_per_unit'],
+                'rate_per_base' => $rateBase,
+                'discount_percent' => $discountPercent,
+                'discount_amount' => $discountAmount,
+                'line_subtotal' => $lineSubtotal,
+                'line_total' => round($lineSubtotal - $discountAmount, 4),
+                'warehouse_id' => $warehouseId,
+                'batch_id' => $batchId,
+                'batch_no' => $batchNo,
+                'manufactured_at' => $manufacturedAt,
+                'expired_at' => $expiredAt,
+            ]);
+
+            if (in_array($product->product_type, ['Stock', 'Combo'], true)) {
+                InventoryMovement::create([
+                    'company_id' => $return->company_id,
+                    'product_id' => $product->id,
+                    'warehouse_id' => $warehouseId,
+                    'batch_id' => $batchId,
+                    'quantity_base' => -1 * $qtyBase,
+                    'unit_cost_base' => $rateBase,
+                    'document_type' => 'purchase_return',
+                    'document_id' => $return->id,
+                    'meta' => ['return_no' => $return->return_no],
+                    'created_by' => $userId,
+                ]);
+            }
+
+            $subtotal = round($subtotal + $lineSubtotal, 4);
+            $discountTotal = round($discountTotal + $discountAmount, 4);
+        }
+
+        return ['subtotal' => $subtotal, 'discount_total' => $discountTotal];
     }
 
     private function getSetting(int $companyId, string $key, $default)
@@ -414,23 +542,4 @@ class PurchaseService
         return filter_var($val, FILTER_VALIDATE_BOOLEAN);
     }
 
-    private function getAccountId(string $name, string $type, int $companyId): int
-    {
-        $account = ChartAccount::where('company_id', $companyId)
-            ->where('name', 'like', "%$name%")
-            ->where('type', 'ledger')
-            ->first();
-
-        if (!$account) {
-            $account = ChartAccount::create([
-                'company_id' => $companyId,
-                'name'       => $name,
-                'type'       => 'ledger',
-                'base_type'  => $type,
-                'code'       => 'AUTO-' . rand(1000, 9999),
-            ]);
-        }
-
-        return $account->id;
-    }
 }

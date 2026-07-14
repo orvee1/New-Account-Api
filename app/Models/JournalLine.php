@@ -16,6 +16,7 @@ class JournalLine extends Model
         'account_id',
         'debit',
         'credit',
+        'narration',
         'memo',
         'is_reconciled',
     ];

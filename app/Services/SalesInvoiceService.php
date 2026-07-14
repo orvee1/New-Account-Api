@@ -2,303 +2,549 @@
 
 namespace App\Services;
 
-use App\Models\SalesInvoice;
-use App\Models\SalesInvoiceItem;
+use App\Models\InventoryLedger;
 use App\Models\Product;
 use App\Models\ProductUom;
-use App\Models\InventoryLedger;
+use App\Models\SalesInvoice;
+use App\Models\SalesInvoiceItem;
 use App\Models\SalesJournalEntry;
-use App\Models\ChartAccount;
+use App\Models\SalesPayment;
+use App\Models\SalesReturn;
+use App\Models\SalesReturnItem;
+use Exception;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Arr;
-use Exception;
 
 class SalesInvoiceService
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function createInvoice(array $payload, int $userId): SalesInvoice
     {
-        $companyId = Auth::guard('sanctum')->user()->company_id;
+        $companyId = $this->currentCompanyId();
 
         return DB::transaction(function () use ($payload, $userId, $companyId) {
-            // 1. Create Invoice Header (Initial)
             $invoice = SalesInvoice::create([
-                'company_id'                  => $companyId,
-                'customer_id'                 => $payload['customer_id'],
-                'invoice_no'                  => $payload['invoice_no'] ?? 'INV-' . now()->timestamp,
-                'invoice_date'                => $payload['invoice_date'],
-                'due_date'                    => Arr::get($payload, 'due_date'),
-                'warehouse_id'                => Arr::get($payload, 'warehouse_id'),
-                'notes'                       => Arr::get($payload, 'notes'),
-                'vat_mode'                    => $payload['vat_mode'],
-                'invoice_discount_amt'        => Arr::get($payload, 'invoice_discount_amt', 0),
+                'company_id' => $companyId,
+                'customer_id' => $payload['customer_id'],
+                'invoice_no' => $payload['invoice_no'] ?? 'INV-' . now()->timestamp,
+                'invoice_date' => $payload['invoice_date'],
+                'due_date' => Arr::get($payload, 'due_date'),
+                'warehouse_id' => Arr::get($payload, 'warehouse_id'),
+                'notes' => Arr::get($payload, 'notes'),
+                'vat_mode' => $payload['vat_mode'],
+                'invoice_discount_amt' => Arr::get($payload, 'invoice_discount_amt', 0),
                 'invoice_discount_account_id' => Arr::get($payload, 'invoice_discount_account_id'),
-                'status'                      => 'sent',
-                'created_by'                  => $userId,
+                'status' => 'sent',
+                'created_by' => $userId,
             ]);
 
-            // 2. Process Line Items
             $totals = $this->processInvoiceItems($invoice, $payload['items'] ?? []);
+            $this->applyTotals($invoice, $totals);
+            $this->postInvoiceJournal($invoice, $userId);
 
-            // 3. Update Invoice Header with calculated totals
+            return $invoice->load(['customer', 'items.product', 'payments']);
+        });
+    }
+
+    public function updateInvoice(SalesInvoice $invoice, array $payload, int $userId): SalesInvoice
+    {
+        $this->assertSameCompany($invoice);
+
+        return DB::transaction(function () use ($invoice, $payload, $userId) {
+            $this->reverseInvoiceImpact($invoice);
+
             $invoice->update([
-                'subtotal'           => $totals['subtotal'],
-                'trade_discount_amt' => $totals['trade_discount_amt'],
-                'line_discount_amt'  => $totals['line_discount_amt'],
-                'taxable_amount'     => $totals['taxable_amount'],
-                'vat_amount'         => $totals['vat_amount'],
-                'ait_amount'         => $totals['ait_amount'],
-                'grand_total'        => $totals['taxable_amount'] + $totals['vat_amount'] - Arr::get($payload, 'invoice_discount_amt', 0),
-                'total_amount'       => $totals['taxable_amount'] + $totals['vat_amount'] - Arr::get($payload, 'invoice_discount_amt', 0),
+                'customer_id' => $payload['customer_id'],
+                'invoice_no' => $payload['invoice_no'] ?? $invoice->invoice_no,
+                'invoice_date' => $payload['invoice_date'],
+                'due_date' => Arr::get($payload, 'due_date'),
+                'warehouse_id' => Arr::get($payload, 'warehouse_id'),
+                'notes' => Arr::get($payload, 'notes'),
+                'vat_mode' => $payload['vat_mode'],
+                'invoice_discount_amt' => Arr::get($payload, 'invoice_discount_amt', 0),
+                'invoice_discount_account_id' => Arr::get($payload, 'invoice_discount_account_id'),
+                'status' => 'sent',
             ]);
 
-            // 4. Generate Journal Entries
-            $this->generateJournalEntries($invoice);
+            $totals = $this->processInvoiceItems($invoice, $payload['items'] ?? []);
+            $this->applyTotals($invoice, $totals);
+            $this->postInvoiceJournal($invoice, $userId);
 
-            return $invoice;
+            return $invoice->refresh()->load(['customer', 'items.product', 'payments']);
+        });
+    }
+
+    public function deleteInvoice(SalesInvoice $invoice): void
+    {
+        $this->assertSameCompany($invoice);
+
+        DB::transaction(function () use ($invoice) {
+            $this->reverseInvoiceImpact($invoice);
+            $invoice->delete();
+        });
+    }
+
+    public function createReturn(SalesInvoice $invoice, array $payload): SalesReturn
+    {
+        $this->assertSameCompany($invoice);
+
+        return DB::transaction(function () use ($invoice, $payload) {
+            $userId = auth('sanctum')->id() ?? Auth::id();
+
+            $return = SalesReturn::create([
+                'company_id' => $invoice->company_id,
+                'customer_id' => $invoice->customer_id,
+                'sales_invoice_id' => $invoice->id,
+                'return_no' => Arr::get($payload, 'return_no', 'RET-' . now()->timestamp),
+                'return_date' => Arr::get($payload, 'return_date', now()->toDateString()),
+                'reason' => Arr::get($payload, 'reason'),
+                'notes' => Arr::get($payload, 'notes'),
+                'created_by' => $userId,
+            ]);
+
+            $totals = $this->attachReturnItems($return, $payload['items'] ?? []);
+
+            $return->update([
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'tax_amount' => $totals['tax_amount'],
+                'total_amount' => $totals['total_amount'],
+            ]);
+
+            return $return->load(['customer', 'items.product']);
+        });
+    }
+
+    public function recordPayment(SalesInvoice $invoice, array $payload): SalesPayment
+    {
+        $this->assertSameCompany($invoice);
+
+        return DB::transaction(function () use ($invoice, $payload) {
+            $amount = round((float) $payload['amount'], 2);
+            if ($amount <= 0) {
+                throw new Exception('Payment amount must be greater than zero.');
+            }
+
+            $invoice->refresh();
+            $remaining = round((float) $invoice->total_amount - (float) $invoice->paid_amount, 2);
+            if ($amount > $remaining) {
+                throw new Exception('Payment amount cannot exceed the invoice due amount.');
+            }
+
+            $payment = SalesPayment::create([
+                'company_id' => $invoice->company_id,
+                'sales_invoice_id' => $invoice->id,
+                'payment_no' => Arr::get($payload, 'payment_no', 'PAY-' . now()->timestamp),
+                'payment_date' => Arr::get($payload, 'payment_date', now()->toDateString()),
+                'amount' => $amount,
+                'payment_method' => Arr::get($payload, 'payment_method'),
+                'reference_no' => Arr::get($payload, 'reference_no'),
+                'notes' => Arr::get($payload, 'notes'),
+                'status' => 'completed',
+                'created_by' => auth('sanctum')->id() ?? Auth::id(),
+            ]);
+
+            $this->postPaymentJournal($payment, $invoice);
+            $this->refreshInvoicePaymentStatus($invoice);
+
+            return $payment;
         });
     }
 
     private function processInvoiceItems(SalesInvoice $invoice, array $items): array
     {
         $totals = [
-            'subtotal'           => 0,
-            'trade_discount_amt' => 0,
-            'line_discount_amt'  => 0,
-            'taxable_amount'     => 0,
-            'vat_amount'         => 0,
-            'ait_amount'         => 0,
+            'subtotal' => 0.0,
+            'trade_discount_amt' => 0.0,
+            'line_discount_amt' => 0.0,
+            'taxable_amount' => 0.0,
+            'vat_amount' => 0.0,
+            'ait_amount' => 0.0,
         ];
 
         foreach ($items as $itemData) {
-            $product = Product::findOrFail($itemData['product_id']);
-            $saleUom = ProductUom::findOrFail($itemData['sale_uom_id']);
-            $priceUom = ProductUom::findOrFail($itemData['price_uom_id']);
+            $product = Product::query()
+                ->where('company_id', $invoice->company_id)
+                ->lockForUpdate()
+                ->findOrFail($itemData['product_id']);
+            $saleUom = ProductUom::query()
+                ->where('product_id', $product->id)
+                ->findOrFail($itemData['sale_uom_id']);
+            $priceUom = ProductUom::query()
+                ->where('product_id', $product->id)
+                ->findOrFail($itemData['price_uom_id']);
 
-            $quantity = (float)$itemData['quantity'];
-            $priceUomRate = (float)$itemData['unit_price']; // This is the rate of the Price UOM
+            $quantity = (float) $itemData['quantity'];
+            $priceUomRate = (float) $itemData['unit_price'];
 
-            // Multi-UOM Calculation Logic
-            $sale_qty_in_base = $quantity * (float)$saleUom->conversion_factor;
-            $price_per_base_unit = $priceUomRate / (float)$priceUom->conversion_factor;
-            $unit_price_original = $price_per_base_unit * (float)$saleUom->conversion_factor;
-            $line_gross_amount = $quantity * $unit_price_original;
+            $saleQtyInBase = round($quantity * (float) $saleUom->conversion_factor, 6);
+            $pricePerBaseUnit = $priceUomRate / max((float) $priceUom->conversion_factor, 0.000001);
+            $unitPriceOriginal = round($pricePerBaseUnit * (float) $saleUom->conversion_factor, 6);
+            $lineGrossAmount = round($quantity * $unitPriceOriginal, 4);
 
-            // Stock Check
-            if ($product->product_type === 'Stock' && $product->current_stock_in_base_uom < $sale_qty_in_base) {
-                throw new Exception("Insufficient stock for product: {$product->name}. Available: {$product->current_stock_in_base_uom}, Requested: {$sale_qty_in_base}");
+            if ($this->isStockTracked($product) && (float) $product->current_stock_in_base_uom < $saleQtyInBase) {
+                throw new Exception("Insufficient stock for product: {$product->name}.");
             }
 
-            // Discounts
-            $trade_discount_pct = (float)Arr::get($itemData, 'trade_discount_pct', 0);
-            $trade_discount_amt = $line_gross_amount * ($trade_discount_pct / 100);
-            $net_unit_price = $unit_price_original * (1 - $trade_discount_pct / 100);
-            $amount_after_trade_discount = $line_gross_amount - $trade_discount_amt;
+            $tradeDiscountPct = (float) Arr::get($itemData, 'trade_discount_pct', 0);
+            $tradeDiscountAmt = round($lineGrossAmount * ($tradeDiscountPct / 100), 4);
+            $netUnitPrice = round($unitPriceOriginal * (1 - $tradeDiscountPct / 100), 4);
+            $amountAfterTradeDiscount = $lineGrossAmount - $tradeDiscountAmt;
 
-            $line_discount_pct = (float)Arr::get($itemData, 'line_discount_pct', 0);
-            $line_discount_amt = (float)Arr::get($itemData, 'line_discount_amt', 0);
-            if ($line_discount_amt == 0 && $line_discount_pct > 0) {
-                $line_discount_amt = $amount_after_trade_discount * ($line_discount_pct / 100);
+            $lineDiscountPct = (float) Arr::get($itemData, 'line_discount_pct', 0);
+            $lineDiscountAmt = (float) Arr::get($itemData, 'line_discount_amt', 0);
+            if ($lineDiscountAmt == 0.0 && $lineDiscountPct > 0) {
+                $lineDiscountAmt = round($amountAfterTradeDiscount * ($lineDiscountPct / 100), 4);
             }
 
-            $line_subtotal = $amount_after_trade_discount - $line_discount_amt;
+            $lineSubtotal = round($amountAfterTradeDiscount - $lineDiscountAmt, 4);
+            $vatRate = (float) Arr::get($itemData, 'vat_rate', $product->vat_rate);
+            $aitRate = (float) Arr::get($itemData, 'ait_rate', $product->ait_rate);
 
-            // VAT & AIT
-            $vat_rate = (float)Arr::get($itemData, 'vat_rate', $product->vat_rate);
-            $ait_rate = (float)Arr::get($itemData, 'ait_rate', $product->ait_rate);
-            $vat_amount = 0;
-            $ait_amount = 0;
+            $vatAmount = $invoice->vat_mode === 'inclusive'
+                ? round($lineSubtotal * $vatRate / (100 + $vatRate), 4)
+                : round($lineSubtotal * ($vatRate / 100), 4);
+            $aitAmount = round($lineSubtotal * ($aitRate / 100), 4);
 
-            if ($invoice->vat_mode === 'inclusive') {
-                $vat_amount = $line_subtotal * $vat_rate / (100 + $vat_rate);
-                // line_subtotal stays as is (inclusive), but taxable amount for accounting is line_subtotal - vat_amount
-            } else {
-                $vat_amount = $line_subtotal * ($vat_rate / 100);
-            }
+            $weightedAvgCost = (float) $product->weighted_avg_cost;
+            $cogs = round($saleQtyInBase * $weightedAvgCost, 4);
+            $grossProfit = round($lineSubtotal - $cogs, 4);
 
-            $ait_amount = $line_subtotal * ($ait_rate / 100);
-
-            // Costing & Inventory
-            $weighted_avg_cost = (float)$product->weighted_avg_cost;
-            $cogs = $sale_qty_in_base * $weighted_avg_cost;
-            $gross_profit = $line_subtotal - $cogs;
-
-            // Save Item
             SalesInvoiceItem::create([
-                'sales_invoice_id'     => $invoice->id,
-                'product_id'           => $product->id,
-                'sale_uom_id'          => $saleUom->id,
-                'price_uom_id'         => $priceUom->id,
-                'quantity'             => $quantity, // for legacy compatibility
+                'sales_invoice_id' => $invoice->id,
+                'product_id' => $product->id,
+                'sale_uom_id' => $saleUom->id,
+                'price_uom_id' => $priceUom->id,
+                'quantity' => $quantity,
                 'quantity_in_sale_uom' => $quantity,
-                'quantity_in_base_uom' => $sale_qty_in_base,
-                'unit_price'           => $priceUomRate, // user entered price
-                'unit_price_original'  => $unit_price_original,
-                'trade_discount_pct'   => $trade_discount_pct,
-                'trade_discount_amt'   => $trade_discount_amt,
-                'net_unit_price'       => $net_unit_price,
-                'line_gross_amount'    => $line_gross_amount,
-                'line_discount_pct'    => $line_discount_pct,
-                'line_discount_amt'    => $line_discount_amt,
-                'line_subtotal'        => $line_subtotal,
-                'vat_rate'             => $vat_rate,
-                'vat_amount'           => $vat_amount,
-                'ait_rate'             => $ait_rate,
-                'ait_amount'           => $ait_amount,
-                'weighted_avg_cost'    => $weighted_avg_cost,
-                'cogs'                 => $cogs,
-                'gross_profit'         => $gross_profit,
-                'description'          => Arr::get($itemData, 'description'),
-                'line_total'           => $line_subtotal + ($invoice->vat_mode === 'exclusive' ? $vat_amount : 0),
+                'quantity_in_base_uom' => $saleQtyInBase,
+                'unit_price' => $priceUomRate,
+                'unit_price_original' => $unitPriceOriginal,
+                'trade_discount_pct' => $tradeDiscountPct,
+                'trade_discount_amt' => $tradeDiscountAmt,
+                'net_unit_price' => $netUnitPrice,
+                'line_gross_amount' => $lineGrossAmount,
+                'line_discount_pct' => $lineDiscountPct,
+                'line_discount_amt' => $lineDiscountAmt,
+                'line_subtotal' => $lineSubtotal,
+                'vat_rate' => $vatRate,
+                'vat_amount' => $vatAmount,
+                'ait_rate' => $aitRate,
+                'ait_amount' => $aitAmount,
+                'weighted_avg_cost' => $weightedAvgCost,
+                'cogs' => $cogs,
+                'gross_profit' => $grossProfit,
+                'description' => Arr::get($itemData, 'description'),
+                'line_total' => $lineSubtotal + ($invoice->vat_mode === 'exclusive' ? $vatAmount : 0),
             ]);
 
-            // Update Stock
-            if ($product->product_type === 'Stock') {
-                $product->decrement('current_stock_in_base_uom', $sale_qty_in_base);
+            if ($this->isStockTracked($product)) {
+                $newStock = round((float) $product->current_stock_in_base_uom - $saleQtyInBase, 4);
+                $product->update(['current_stock_in_base_uom' => $newStock]);
 
-                // Inventory Ledger
                 InventoryLedger::create([
-                    'product_id'            => $product->id,
-                    'reference_id'          => $invoice->id,
-                    'reference_type'        => 'sale',
-                    'qty_out'               => $sale_qty_in_base,
-                    'qty_balance'           => $product->current_stock_in_base_uom,
-                    'unit_cost'             => $weighted_avg_cost,
-                    'total_cost'            => $cogs,
-                    'new_weighted_avg_cost' => $weighted_avg_cost,
+                    'product_id' => $product->id,
+                    'reference_id' => $invoice->id,
+                    'reference_type' => 'sale',
+                    'qty_in' => 0,
+                    'qty_out' => $saleQtyInBase,
+                    'qty_balance' => $newStock,
+                    'unit_cost' => $weightedAvgCost,
+                    'total_cost' => $cogs,
+                    'new_weighted_avg_cost' => $weightedAvgCost,
                 ]);
             }
 
-            // Accumulate Totals
-            $totals['subtotal']           += $line_gross_amount;
-            $totals['trade_discount_amt'] += $trade_discount_amt;
-            $totals['line_discount_amt']  += $line_discount_amt;
-            $totals['taxable_amount']     += $line_subtotal;
-            $totals['vat_amount']         += $vat_amount;
-            $totals['ait_amount']         += $ait_amount;
+            $totals['subtotal'] += $lineGrossAmount;
+            $totals['trade_discount_amt'] += $tradeDiscountAmt;
+            $totals['line_discount_amt'] += $lineDiscountAmt;
+            $totals['taxable_amount'] += $lineSubtotal;
+            $totals['vat_amount'] += $vatAmount;
+            $totals['ait_amount'] += $aitAmount;
         }
 
-        return $totals;
+        return array_map(fn ($value) => round($value, 4), $totals);
     }
 
-    private function generateJournalEntries(SalesInvoice $invoice)
+    private function applyTotals(SalesInvoice $invoice, array $totals): void
     {
-        $invoice->load('items', 'customer');
-        $companyId = $invoice->company_id;
+        $totalAmount = $totals['taxable_amount']
+            + ($invoice->vat_mode === 'exclusive' ? $totals['vat_amount'] : 0)
+            - $totals['ait_amount']
+            - (float) $invoice->invoice_discount_amt;
 
-        // Account IDs - in a real app these should be configurable
-        $arAccountId = $invoice->customer->chart_account_id ?? $this->getAccountId('Accounts Receivable', 'asset', $companyId);
-        $salesRevenueAccountId = $this->getAccountId('Sales Revenue', 'income', $companyId);
-        $vatPayableAccountId = $this->getAccountId('VAT Payable', 'liability', $companyId);
-        $aitReceivableAccountId = $this->getAccountId('AIT Receivable', 'asset', $companyId);
-        $cogsAccountId = $this->getAccountId('Cost of Goods Sold', 'expense', $companyId);
-        $inventoryAccountId = config('coa_map.inventory') ?? $this->getAccountId('Inventory', 'asset', $companyId);
+        $invoice->update([
+            'subtotal' => $totals['subtotal'],
+            'trade_discount_amt' => $totals['trade_discount_amt'],
+            'line_discount_amt' => $totals['line_discount_amt'],
+            'taxable_amount' => $totals['taxable_amount'],
+            'vat_amount' => $totals['vat_amount'],
+            'ait_amount' => $totals['ait_amount'],
+            'grand_total' => round($totalAmount, 2),
+            'total_amount' => round($totalAmount, 2),
+            'discount_total' => round($totals['trade_discount_amt'] + $totals['line_discount_amt'] + (float) $invoice->invoice_discount_amt, 2),
+            'tax_amount' => round($totals['vat_amount'], 2),
+        ]);
+    }
+
+    private function postInvoiceJournal(SalesInvoice $invoice, int $userId): void
+    {
+        $invoice->loadMissing(['items.product', 'customer']);
+
+        $revenueCredit = 0.0;
+        $vatCredit = 0.0;
+        $aitDebit = 0.0;
+        $cogsDebit = 0.0;
 
         foreach ($invoice->items as $item) {
-            // A. Sales entries
-            // Dr. Accounts Receivable [line_total including VAT]
-            // Cr. Sales Revenue [line_subtotal after line discount]
-            // Cr. VAT Payable [vat_amount]
-            // Dr. AIT Receivable [ait_amount]
+            $lineSubtotal = (float) $item->line_subtotal;
+            $vatAmount = (float) $item->vat_amount;
 
-            $line_total_with_vat = $item->line_subtotal + ($invoice->vat_mode === 'exclusive' ? $item->vat_amount : 0);
-            $ar_amount = $line_total_with_vat - $item->ait_amount;
-
-            SalesJournalEntry::create([
-                'invoice_id' => $invoice->id,
-                'account_id' => $arAccountId,
-                'dr_cr'      => 'dr',
-                'amount'     => $ar_amount,
-                'narration'  => "Sales to {$invoice->customer->name} - Inv #{$invoice->invoice_no}",
-            ]);
-
-            if ($item->ait_amount > 0) {
-                SalesJournalEntry::create([
-                    'invoice_id' => $invoice->id,
-                    'account_id' => $aitReceivableAccountId,
-                    'dr_cr'      => 'dr',
-                    'amount'     => $item->ait_amount,
-                    'narration'  => "AIT on Sales - Inv #{$invoice->invoice_no}",
-                ]);
-            }
-
-            SalesJournalEntry::create([
-                'invoice_id' => $invoice->id,
-                'account_id' => $salesRevenueAccountId,
-                'dr_cr'      => 'cr',
-                'amount'     => $item->line_subtotal,
-                'narration'  => "Sales Revenue - Inv #{$invoice->invoice_no}",
-            ]);
-
-            if ($item->vat_amount > 0) {
-                SalesJournalEntry::create([
-                    'invoice_id' => $invoice->id,
-                    'account_id' => $vatPayableAccountId,
-                    'dr_cr'      => 'cr',
-                    'amount'     => $item->vat_amount,
-                    'narration'  => "VAT on Sales - Inv #{$invoice->invoice_no}",
-                ]);
-            }
-
-            // B. COGS entry
-            if ($item->cogs > 0) {
-                SalesJournalEntry::create([
-                    'invoice_id' => $invoice->id,
-                    'account_id' => $cogsAccountId,
-                    'dr_cr'      => 'dr',
-                    'amount'     => $item->cogs,
-                    'narration'  => "COGS for Inv #{$invoice->invoice_no}",
-                ]);
-
-                SalesJournalEntry::create([
-                    'invoice_id' => $invoice->id,
-                    'account_id' => $inventoryAccountId,
-                    'dr_cr'      => 'cr',
-                    'amount'     => $item->cogs,
-                    'narration'  => "Inventory reduction for Inv #{$invoice->invoice_no}",
-                ]);
-            }
+            $revenueCredit += $invoice->vat_mode === 'inclusive'
+                ? max(0, $lineSubtotal - $vatAmount)
+                : $lineSubtotal;
+            $vatCredit += $vatAmount;
+            $aitDebit += (float) $item->ait_amount;
+            $cogsDebit += (float) $item->cogs;
         }
 
-        // C. Invoice level discount entry
-        if ($invoice->invoice_discount_amt > 0 && $invoice->invoice_discount_account_id) {
-            SalesJournalEntry::create([
-                'invoice_id' => $invoice->id,
-                'account_id' => $invoice->invoice_discount_account_id,
-                'dr_cr'      => 'dr',
-                'amount'     => $invoice->invoice_discount_amt,
-                'narration'  => "Invoice Discount - Inv #{$invoice->invoice_no}",
+        $receivableLine = [
+            'debit' => round((float) $invoice->total_amount, 2),
+            'credit' => 0,
+            'narration' => "Sales invoice {$invoice->invoice_no}",
+        ];
+
+        if ($invoice->customer?->chart_account_id) {
+            $receivableLine['account_id'] = $invoice->customer->chart_account_id;
+        } else {
+            $receivableLine['key'] = 'accounts_receivable';
+        }
+
+        $lines = [$receivableLine];
+
+        if (round($aitDebit, 2) > 0) {
+            $lines[] = [
+                'key' => 'ait_receivable',
+                'debit' => round($aitDebit, 2),
+                'credit' => 0,
+                'narration' => "AIT receivable {$invoice->invoice_no}",
+            ];
+        }
+
+        if ((float) $invoice->invoice_discount_amt > 0) {
+            $discountLine = [
+                'debit' => round((float) $invoice->invoice_discount_amt, 2),
+                'credit' => 0,
+                'narration' => "Invoice discount {$invoice->invoice_no}",
+            ];
+
+            if ($invoice->invoice_discount_account_id) {
+                $discountLine['account_id'] = $invoice->invoice_discount_account_id;
+            } else {
+                $discountLine['key'] = 'discount_allowed';
+            }
+
+            $lines[] = $discountLine;
+        }
+
+        $lines[] = [
+            'key' => 'sales_revenue',
+            'debit' => 0,
+            'credit' => round($revenueCredit, 2),
+            'narration' => "Sales revenue {$invoice->invoice_no}",
+        ];
+
+        if (round($vatCredit, 2) > 0) {
+            $lines[] = [
+                'key' => 'tax_payable',
+                'debit' => 0,
+                'credit' => round($vatCredit, 2),
+                'narration' => "VAT payable {$invoice->invoice_no}",
+            ];
+        }
+
+        if (round($cogsDebit, 2) > 0) {
+            $lines[] = [
+                'key' => 'cogs',
+                'debit' => round($cogsDebit, 2),
+                'credit' => 0,
+                'narration' => "COGS {$invoice->invoice_no}",
+            ];
+            $lines[] = [
+                'key' => 'inventory',
+                'debit' => 0,
+                'credit' => round($cogsDebit, 2),
+                'narration' => "Inventory reduction {$invoice->invoice_no}",
+            ];
+        }
+
+        $this->postingService->post([
+            'company_id' => $invoice->company_id,
+            'reference_type' => SalesInvoice::class,
+            'reference_id' => $invoice->id,
+            'entry_date' => $invoice->invoice_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Sales Invoice #{$invoice->invoice_no}",
+            'created_by' => $userId,
+            'lines' => $lines,
+        ]);
+    }
+
+    private function reverseInvoiceImpact(SalesInvoice $invoice): void
+    {
+        $invoice->loadMissing('items.product');
+
+        foreach ($invoice->items as $item) {
+            $product = Product::query()
+                ->where('company_id', $invoice->company_id)
+                ->lockForUpdate()
+                ->find($item->product_id);
+
+            if (! $product || ! $this->isStockTracked($product)) {
+                continue;
+            }
+
+            $restoredQty = (float) $item->quantity_in_base_uom;
+            $newStock = round((float) $product->current_stock_in_base_uom + $restoredQty, 4);
+            $product->update(['current_stock_in_base_uom' => $newStock]);
+
+            InventoryLedger::create([
+                'product_id' => $product->id,
+                'reference_id' => $invoice->id,
+                'reference_type' => 'sale_reversal',
+                'qty_in' => $restoredQty,
+                'qty_out' => 0,
+                'qty_balance' => $newStock,
+                'unit_cost' => (float) $item->weighted_avg_cost,
+                'total_cost' => (float) $item->cogs,
+                'new_weighted_avg_cost' => (float) $product->weighted_avg_cost,
+            ]);
+        }
+
+        $invoice->items()->delete();
+        SalesJournalEntry::query()->where('invoice_id', $invoice->id)->delete();
+        $this->postingService->deleteForReference($invoice->company_id, SalesInvoice::class, $invoice->id);
+    }
+
+    private function attachReturnItems(SalesReturn $return, array $items): array
+    {
+        $subtotal = 0.0;
+        $discountTotal = 0.0;
+        $taxTotal = 0.0;
+
+        foreach ($items as $item) {
+            $lineTotal = (float) $item['quantity'] * (float) $item['unit_price'];
+            $discountAmount = (float) Arr::get($item, 'discount_amount', 0);
+            $taxAmount = (float) Arr::get($item, 'tax_amount', 0);
+
+            SalesReturnItem::create([
+                'sales_return_id' => $return->id,
+                'sales_invoice_item_id' => Arr::get($item, 'sales_invoice_item_id'),
+                'product_id' => $item['product_id'],
+                'quantity' => $item['quantity'],
+                'unit_price' => $item['unit_price'],
+                'discount_amount' => $discountAmount,
+                'tax_amount' => $taxAmount,
+                'line_total' => $lineTotal - $discountAmount + $taxAmount,
             ]);
 
-            SalesJournalEntry::create([
-                'invoice_id' => $invoice->id,
-                'account_id' => $arAccountId,
-                'dr_cr'      => 'cr',
-                'amount'     => $invoice->invoice_discount_amt,
-                'narration'  => "AR reduction for Invoice Discount - Inv #{$invoice->invoice_no}",
-            ]);
+            $subtotal += $lineTotal;
+            $discountTotal += $discountAmount;
+            $taxTotal += $taxAmount;
+        }
+
+        $totalAmount = $subtotal - $discountTotal + $taxTotal;
+
+        return [
+            'subtotal' => round($subtotal, 2),
+            'discount_total' => round($discountTotal, 2),
+            'tax_amount' => round($taxTotal, 2),
+            'total_amount' => round($totalAmount, 2),
+        ];
+    }
+
+    private function postPaymentJournal(SalesPayment $payment, SalesInvoice $invoice): void
+    {
+        $this->postingService->post([
+            'company_id' => $payment->company_id,
+            'reference_type' => SalesPayment::class,
+            'reference_id' => $payment->id,
+            'entry_date' => $payment->payment_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Sales Payment #{$payment->payment_no}",
+            'created_by' => $payment->created_by,
+            'lines' => [
+                [
+                    'key' => $this->paymentMethodKey($payment->payment_method),
+                    'debit' => (float) $payment->amount,
+                    'credit' => 0,
+                    'narration' => "Payment received for {$invoice->invoice_no}",
+                ],
+                [
+                    'key' => 'accounts_receivable',
+                    'debit' => 0,
+                    'credit' => (float) $payment->amount,
+                    'narration' => "Receivable cleared for {$invoice->invoice_no}",
+                ],
+            ],
+        ]);
+    }
+
+    private function refreshInvoicePaymentStatus(SalesInvoice $invoice): void
+    {
+        $invoice->refresh();
+        $paidAmount = round((float) $invoice->payments()->sum('amount'), 2);
+        $totalAmount = round((float) $invoice->total_amount, 2);
+
+        $status = 'unpaid';
+        if ($paidAmount > 0 && $paidAmount < $totalAmount) {
+            $status = 'partially_paid';
+        } elseif ($paidAmount >= $totalAmount && $totalAmount > 0) {
+            $status = 'paid';
+        }
+
+        $invoice->update([
+            'paid_amount' => $paidAmount,
+            'status' => $status,
+        ]);
+    }
+
+    private function paymentMethodKey(?string $paymentMethod): string
+    {
+        $method = strtolower((string) $paymentMethod);
+
+        return str_contains($method, 'bank')
+            || str_contains($method, 'cheque')
+            || str_contains($method, 'check')
+            || str_contains($method, 'transfer')
+            || str_contains($method, 'online')
+                ? 'bank'
+                : 'cash';
+    }
+
+    private function currentCompanyId(): int
+    {
+        $companyId = Auth::guard('sanctum')->user()?->company_id ?? Auth::user()?->company_id;
+
+        if (! $companyId) {
+            throw new Exception('Authenticated company context is required.');
+        }
+
+        return (int) $companyId;
+    }
+
+    private function assertSameCompany(SalesInvoice $invoice): void
+    {
+        if ((int) $invoice->company_id !== $this->currentCompanyId()) {
+            throw new Exception('The requested invoice does not belong to the authenticated company.');
         }
     }
 
-    private function getAccountId(string $name, string $type, int $companyId): int
+    private function isStockTracked(Product $product): bool
     {
-        $account = ChartAccount::where('company_id', $companyId)
-            ->where('name', 'like', "%$name%")
-            ->where('type', 'ledger')
-            ->first();
-
-        if (!$account) {
-            // Create a default one if not found? Or throw error?
-            // For now, let's create a dummy one to avoid failure, but in production this is bad.
-            $account = ChartAccount::create([
-                'company_id' => $companyId,
-                'name'       => $name,
-                'type'       => 'ledger',
-                'base_type'  => $type,
-                'code'       => 'AUTO-' . rand(1000, 9999),
-            ]);
-        }
-
-        return $account->id;
+        return in_array($product->product_type, ['Stock', 'Combo'], true);
     }
 }

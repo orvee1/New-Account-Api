@@ -38,7 +38,7 @@ class CompanyUser extends Authenticatable
     protected static function booted(): void
     {
         static::creating(function (self $model) {
-            $uid = Auth::id();
+            $uid = Auth::user() instanceof User ? Auth::id() : null;
             if ($uid) {
                 if (is_null($model->created_by)) $model->created_by = $uid;
                 if (is_null($model->updated_by)) $model->updated_by = $uid;
@@ -46,7 +46,7 @@ class CompanyUser extends Authenticatable
         });
 
         static::updating(function (self $model) {
-            $uid = Auth::id();
+            $uid = Auth::user() instanceof User ? Auth::id() : null;
             if ($uid) $model->updated_by = $uid;
         });
     }

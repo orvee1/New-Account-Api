@@ -21,8 +21,10 @@ class SalesInvoiceController extends Controller
             ->where('company_id', auth('sanctum')->user()->company_id)
             ->when($request->filled('q'), function ($q) use ($request) {
                 $keyword = "%{$request->q}%";
-                $q->where('invoice_no', 'like', $keyword)
-                    ->orWhereHas('customer', fn($c) => $c->where('name', 'like', $keyword));
+                $q->where(function ($query) use ($keyword) {
+                    $query->where('invoice_no', 'like', $keyword)
+                        ->orWhereHas('customer', fn($c) => $c->where('name', 'like', $keyword));
+                });
             })
             ->when($request->filled('customer_id'), fn($q) => $q->where('customer_id', $request->integer('customer_id')))
             ->when($request->filled('date_from'), fn($q) => $q->whereDate('invoice_date', '>=', $request->date('date_from')))
@@ -36,6 +38,7 @@ class SalesInvoiceController extends Controller
     // GET /api/sales-invoices/{id}
     public function show(SalesInvoice $salesInvoice)
     {
+        abort_if((int) $salesInvoice->company_id !== (int) auth('sanctum')->user()->company_id, 404);
         $salesInvoice->load(['customer', 'items.product', 'payments']);
         return SalesInvoiceResource::make($salesInvoice);
     }
@@ -57,13 +60,14 @@ class SalesInvoiceController extends Controller
     // DELETE /api/sales-invoices/{id}
     public function destroy(SalesInvoice $salesInvoice)
     {
-        $salesInvoice->delete();
+        $this->service->deleteInvoice($salesInvoice);
         return response()->noContent();
     }
 
     // POST /api/sales-invoices/{id}/create-return
     public function createReturn(Request $request, SalesInvoice $salesInvoice)
     {
+        abort_if((int) $salesInvoice->company_id !== (int) auth('sanctum')->user()->company_id, 404);
         $return = $this->service->createReturn($salesInvoice, $request->all());
         return response()->json([
             'message' => 'Sales Return created successfully',
@@ -74,6 +78,7 @@ class SalesInvoiceController extends Controller
     // POST /api/sales-invoices/{id}/record-payment
     public function recordPayment(Request $request, SalesInvoice $salesInvoice)
     {
+        abort_if((int) $salesInvoice->company_id !== (int) auth('sanctum')->user()->company_id, 404);
         $payment = $this->service->recordPayment($salesInvoice, $request->all());
         return response()->json([
             'message' => 'Payment recorded successfully',

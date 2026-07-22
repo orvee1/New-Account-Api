@@ -10,6 +10,7 @@ use App\Models\JournalLine;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 
 class AccountReconciliationController extends Controller
 {
@@ -24,6 +25,7 @@ class AccountReconciliationController extends Controller
             return response()->json(['message' => 'Account not found'], 404);
         }
 
+        $startDate = $request->query('start_date');
         $endDate = $request->query('end_date') ?? Carbon::now()->toDateString();
 
         // 1. Get Beginning Balance (Ending balance of last reconciliation)
@@ -79,6 +81,7 @@ class AccountReconciliationController extends Controller
                 'type' => $account->type,
             ],
             'period' => [
+                'start_date' => $startDate,
                 'end_date' => $endDate,
             ],
             'balances' => [

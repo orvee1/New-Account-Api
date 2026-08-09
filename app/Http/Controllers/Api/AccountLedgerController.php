@@ -8,6 +8,7 @@ use App\Models\JournalEntry;
 use App\Models\JournalLine;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class AccountLedgerController extends Controller
@@ -35,19 +36,25 @@ class AccountLedgerController extends Controller
             $endDate = Carbon::now()->toDateString();
         }
 
-        // এই account এর সকল transactions ফেচ করুন
+        // এই account এর নির্ধারিত সময়ের transactions ফেচ করুন
         $transactions = JournalLine::where('company_id', $company->id)
             ->where('account_id', $account->id)
             ->with('journalEntry')
-            ->whereBetween('created_at', [
-                Carbon::parse($startDate)->startOfDay(),
-                Carbon::parse($endDate)->endOfDay()
-            ])
-            ->orderBy('created_at', 'asc')
-            ->get();
+            ->whereHas('journalEntry', function ($q) use ($startDate, $endDate) {
+                $q->whereDate('entry_date', '>=', $startDate)
+                  ->whereDate('entry_date', '<=', $endDate);
+            })
+            ->get()
+            ->sortBy(function ($line) {
+                return $line->journalEntry?->entry_date;
+            })
+            ->values();
+
+        // Opening balance before this period
+        $openingBalance = $this->openingBalanceBeforeDate($company->id, $account->id, $startDate);
 
         // Running balance calculate করুন
-        $runningBalance = 0;
+        $runningBalance = $openingBalance;
         $transactionData = $transactions->map(function ($line) use (&$runningBalance) {
             $debit = (float) $line->debit ?? 0;
             $credit = (float) $line->credit ?? 0;
@@ -64,11 +71,6 @@ class AccountLedgerController extends Controller
                 'balance' => round($runningBalance, 2),
                 'memo' => $line->memo,
             ];
-        });
-
-        // Opening balance (সকল লেনদেনের আগের ব্যালেন্স)
-        $openingBalance = $transactions->isEmpty() ? 0 : -$transactions->sum(function ($line) {
-            return ($line->debit ?? 0) - ($line->credit ?? 0);
         });
 
         // Closing balance
@@ -95,5 +97,25 @@ class AccountLedgerController extends Controller
             'transactions' => $transactionData,
             'transaction_count' => $transactionData->count(),
         ]);
+    }
+
+    private function openingBalanceBeforeDate(int $companyId, int $accountId, string $date): float
+    {
+        $totals = JournalLine::query()
+            ->select([
+                DB::raw('SUM(debit) as debit'),
+                DB::raw('SUM(credit) as credit'),
+            ])
+            ->where('company_id', $companyId)
+            ->where('account_id', $accountId)
+            ->whereHas('journalEntry', function ($q) use ($date) {
+                $q->whereDate('entry_date', '<', $date);
+            })
+            ->first();
+
+        $debit = (float) ($totals->debit ?? 0);
+        $credit = (float) ($totals->credit ?? 0);
+
+        return $debit - $credit;
     }
 }

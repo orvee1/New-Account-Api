@@ -71,4 +71,14 @@ class JournalLine extends Model
             // For now, assume account_id is always present and valid.
         });
     }
+
+    public function getMemoAttribute()
+    {
+        return $this->narration;
+    }
+
+    public function setMemoAttribute($value)
+    {
+        $this->attributes['narration'] = $value;
+    }
 }

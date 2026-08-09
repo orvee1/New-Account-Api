@@ -50,8 +50,7 @@ class DatabaseSeeder extends Seeder
         // }
 
         if (class_exists(\Database\Seeders\AccountLedgerSeeder::class)) {
-            // Commented out due to reference_id type error
-            // $this->call(AccountLedgerSeeder::class);
+            $this->call(AccountLedgerSeeder::class);
         }
 
         if (class_exists(\Database\Seeders\DefaultChartOfAccountsSeeder::class)) {

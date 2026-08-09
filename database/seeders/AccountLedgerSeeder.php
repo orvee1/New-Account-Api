@@ -88,7 +88,7 @@ class AccountLedgerSeeder extends Seeder
         $openingEntry = JournalEntry::create([
             'company_id' => $company->id,
             'entry_date' => Carbon::now()->subDays(30)->toDateString(),
-            'reference_id' => 'OB-001',
+            'reference_id' => null,
             'reference_type' => 'Opening Balance',
             'description' => 'Opening Balance - Cash',
             'created_by' => null,
@@ -100,14 +100,14 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $cashAccount->id,
             'debit' => 10000,
             'credit' => 0,
-            'memo' => 'Opening Cash Balance',
+            'narration' => 'Opening Cash Balance',
         ]);
 
         // Sales transaction 1
         $sale1 = JournalEntry::create([
             'company_id' => $company->id,
             'entry_date' => Carbon::now()->subDays(25)->toDateString(),
-            'reference_id' => 'SAL-001',
+            'reference_id' => null,
             'reference_type' => 'Sales',
             'description' => 'Cash Sale - Product A',
             'created_by' => null,
@@ -119,7 +119,7 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $cashAccount->id,
             'debit' => 5000,
             'credit' => 0,
-            'memo' => 'Sale proceeds',
+            'narration' => 'Sale proceeds',
         ]);
 
         JournalLine::create([
@@ -128,14 +128,14 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $salesAccount->id,
             'debit' => 0,
             'credit' => 5000,
-            'memo' => 'Sales income',
+            'narration' => 'Sales income',
         ]);
 
         // Expense transaction
         $expense1 = JournalEntry::create([
             'company_id' => $company->id,
             'entry_date' => Carbon::now()->subDays(20)->toDateString(),
-            'reference_id' => 'EXP-001',
+            'reference_id' => null,
             'reference_type' => 'Expense',
             'description' => 'Office Supplies Purchase',
             'created_by' => null,
@@ -147,7 +147,7 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $expensesAccount->id,
             'debit' => 2000,
             'credit' => 0,
-            'memo' => 'Office supplies',
+            'narration' => 'Office supplies',
         ]);
 
         JournalLine::create([
@@ -156,14 +156,14 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $cashAccount->id,
             'debit' => 0,
             'credit' => 2000,
-            'memo' => 'Paid for supplies',
+            'narration' => 'Paid for supplies',
         ]);
 
         // Bank transfer
         $transfer1 = JournalEntry::create([
             'company_id' => $company->id,
             'entry_date' => Carbon::now()->subDays(15)->toDateString(),
-            'reference_id' => 'TRF-001',
+            'reference_id' => null,
             'reference_type' => 'Transfer',
             'description' => 'Cash deposited to Bank',
             'created_by' => null,
@@ -175,7 +175,7 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $bankAccount->id,
             'debit' => 8000,
             'credit' => 0,
-            'memo' => 'Deposit to bank',
+            'narration' => 'Deposit to bank',
         ]);
 
         JournalLine::create([
@@ -184,14 +184,14 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $cashAccount->id,
             'debit' => 0,
             'credit' => 8000,
-            'memo' => 'Transferred to bank',
+            'narration' => 'Transferred to bank',
         ]);
 
         // Sales transaction 2
         $sale2 = JournalEntry::create([
             'company_id' => $company->id,
             'entry_date' => Carbon::now()->subDays(10)->toDateString(),
-            'reference_id' => 'SAL-002',
+            'reference_id' => null,
             'reference_type' => 'Sales',
             'description' => 'Cash Sale - Product B',
             'created_by' => null,
@@ -203,7 +203,7 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $cashAccount->id,
             'debit' => 3500,
             'credit' => 0,
-            'memo' => 'Sale proceeds',
+            'narration' => 'Sale proceeds',
         ]);
 
         JournalLine::create([
@@ -212,7 +212,7 @@ class AccountLedgerSeeder extends Seeder
             'account_id' => $salesAccount->id,
             'debit' => 0,
             'credit' => 3500,
-            'memo' => 'Sales income',
+            'narration' => 'Sales income',
         ]);
 
         $this->command->info('✅ Dummy account data created successfully!');

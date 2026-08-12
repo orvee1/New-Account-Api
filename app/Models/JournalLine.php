@@ -40,13 +40,14 @@ class JournalLine extends Model
         });
 
         static::updating(function (JournalLine $line) {
-            // Prevent modifying posted journal lines if not allowed
-            // (This logic might be better placed in a Service layer or Form Request)
-            // For now, just a basic check
-            if ($line->journalEntry && $line->journalEntry->posted_at !== null) {
-                 // Optionally check if 'posted_at' is not null in JournalEntry, if that column exists.
-                 // Or based on some other flag indicating it's finalized.
-                 // throw new \Exception("Cannot modify a posted journal line.");
+            if ($line->journalEntry && in_array($line->journalEntry->status, ['posted', 'reversed'], true)) {
+                throw new \Exception('Cannot modify posted journal lines. Create a reversal entry instead.');
+            }
+        });
+
+        static::deleting(function (JournalLine $line) {
+            if ($line->journalEntry && in_array($line->journalEntry->status, ['posted', 'reversed'], true)) {
+                throw new \Exception('Cannot delete posted journal lines. Create a reversal entry instead.');
             }
         });
     }

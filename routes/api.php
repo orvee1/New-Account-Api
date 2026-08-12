@@ -190,6 +190,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::apiResource('contras', ContraController::class);
     Route::apiResource('debit-notes', DebitNoteController::class);
     Route::apiResource('credit-notes', CreditNoteController::class);
+    Route::post('manual-journals/{manualJournal}/reverse', [ManualJournalController::class, 'reverse']);
     Route::apiResource('manual-journals', ManualJournalController::class);
     Route::apiResource('recurring-transactions', RecurringTransactionController::class);
     Route::apiResource('transaction-transfers', TransactionTransferController::class);

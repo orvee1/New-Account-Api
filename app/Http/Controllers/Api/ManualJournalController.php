@@ -83,12 +83,13 @@ class ManualJournalController extends Controller
     public function show(ManualJournal $manualJournal)
     {
         $this->ensureCompanyAccess($manualJournal->company_id);
-        return response()->json($manualJournal->load(['debitAccount', 'creditAccount']));
+        return response()->json($manualJournal->load(['debitAccount', 'creditAccount', 'journalEntry.lines']));
     }
 
     public function update(Request $request, ManualJournal $manualJournal)
     {
         $this->ensureCompanyAccess($manualJournal->company_id);
+        $this->assertEditable($manualJournal);
 
         $validated = $request->validate([
             'journal_date' => 'required|date',
@@ -126,12 +127,66 @@ class ManualJournalController extends Controller
     public function destroy(ManualJournal $manualJournal)
     {
         $this->ensureCompanyAccess($manualJournal->company_id);
+        $this->assertEditable($manualJournal);
+
         DB::transaction(function () use ($manualJournal) {
             $this->postingService->deleteForReference($manualJournal->company_id, ManualJournal::class, $manualJournal->id);
             $manualJournal->delete();
         });
 
         return response()->json(['message' => 'Manual journal deleted']);
+    }
+
+    public function reverse(Request $request, ManualJournal $manualJournal)
+    {
+        $this->ensureCompanyAccess($manualJournal->company_id);
+
+        $journalEntry = $manualJournal->journalEntry;
+        if (! $journalEntry || $journalEntry->entry_type === 'reversal' || $journalEntry->reversal_entry_id) {
+            return response()->json(['message' => 'Manual journal has no active posted journal entry to reverse.'], 422);
+        }
+
+        if ($journalEntry->status !== 'posted') {
+            return response()->json(['message' => 'Only posted manual journals can be reversed.'], 422);
+        }
+
+        $reversalDate = $request->input('reversal_date');
+        if ($reversalDate) {
+            $request->validate(['reversal_date' => 'date']);
+        }
+
+        $reversal = DB::transaction(function () use ($manualJournal, $journalEntry, $reversalDate) {
+            $reversal = $this->postingService->reverseEntry($journalEntry, $reversalDate);
+
+            $manualJournal->forceFill([
+                'status' => 'reversed',
+            ])->saveQuietly();
+
+            return $reversal;
+        });
+
+        return response()->json([
+            'message' => 'Manual journal reversed',
+            'manual_journal' => $manualJournal->refresh()->load(['debitAccount', 'creditAccount', 'journalEntry.lines']),
+            'reversal_entry' => $reversal,
+        ]);
+    }
+
+    private function assertEditable(ManualJournal $manualJournal): void
+    {
+        $manualJournal->loadMissing('journalEntry');
+
+        if (in_array($manualJournal->status, ['posted', 'completed', 'reversed'], true)) {
+            throw ValidationException::withMessages([
+                'status' => ['Posted manual journals cannot be edited or deleted. Reverse the journal and create a correction entry.'],
+            ]);
+        }
+
+        if ($manualJournal->journalEntry && in_array($manualJournal->journalEntry->status, ['posted', 'reversed'], true)) {
+            throw ValidationException::withMessages([
+                'status' => ['This manual journal already has posted ledger impact. Reverse it before making corrections.'],
+            ]);
+        }
     }
 
     private function validateBalancedAmounts(array $validated): void

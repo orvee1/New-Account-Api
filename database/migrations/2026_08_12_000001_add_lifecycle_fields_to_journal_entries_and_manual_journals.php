@@ -24,6 +24,9 @@ return new class extends Migration
             if (! Schema::hasColumn('journal_entries', 'reversed_entry_id')) {
                 $table->unsignedBigInteger('reversed_entry_id')->nullable()->after('posted_by')->index();
             }
+            if (! Schema::hasColumn('journal_entries', 'reversal_entry_id')) {
+                $table->unsignedBigInteger('reversal_entry_id')->nullable()->after('reversed_entry_id')->index();
+            }
         });
 
         Schema::table('manual_journals', function (Blueprint $table) {
@@ -48,7 +51,7 @@ return new class extends Migration
         });
 
         Schema::table('journal_entries', function (Blueprint $table) {
-            foreach (['reversed_entry_id', 'posted_by', 'posted_at', 'entry_type', 'status'] as $column) {
+            foreach (['reversal_entry_id', 'reversed_entry_id', 'posted_by', 'posted_at', 'entry_type', 'status'] as $column) {
                 if (Schema::hasColumn('journal_entries', $column)) {
                     $table->dropColumn($column);
                 }

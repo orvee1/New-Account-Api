@@ -520,7 +520,7 @@ class ReportController extends Controller
             ])
             ->where('company_id', $companyId)
             ->whereHas('journalEntry', function ($q) use ($startDate, $endDate) {
-                $q->where('status', 'posted');
+                $q->whereIn('status', ['posted', 'reversed']);
                 if ($startDate) {
                     $q->whereDate('entry_date', '>=', $startDate);
                 }
@@ -560,7 +560,7 @@ class ReportController extends Controller
                 DB::raw('SUM(credit) as credit'),
             ])
             ->where('company_id', $companyId)
-            ->whereHas('journalEntry', fn($q) => $q->where('status', 'posted')->whereDate('entry_date', '<=', $asOfDate))
+            ->whereHas('journalEntry', fn($q) => $q->whereIn('status', ['posted', 'reversed'])->whereDate('entry_date', '<=', $asOfDate))
             ->groupBy('account_id')
             ->get();
 

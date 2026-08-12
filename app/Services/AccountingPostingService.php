@@ -87,15 +87,74 @@ class AccountingPostingService
     public function deleteForReference(int $companyId, string $referenceType, mixed $referenceId): void
     {
         $entries = JournalEntry::query()
+            ->with('lines')
             ->where('company_id', $companyId)
             ->where('reference_type', $referenceType)
             ->where('reference_id', $referenceId)
+            ->whereNull('reversal_entry_id')
+            ->where('entry_type', '!=', 'reversal')
             ->get();
 
         foreach ($entries as $entry) {
+            if (in_array($entry->status, ['posted', 'reversed'], true)) {
+                $this->reverseEntry($entry);
+                continue;
+            }
+
             $entry->lines()->delete();
             $entry->delete();
         }
+    }
+
+    public function reverseEntry(JournalEntry $entry, ?string $reversalDate = null, mixed $reversedBy = null): ?JournalEntry
+    {
+        if ($entry->reversal_entry_id || $entry->entry_type === 'reversal') {
+            return null;
+        }
+
+        $entry->loadMissing('lines');
+
+        if ($entry->lines->isEmpty()) {
+            return null;
+        }
+
+        $reversalDate ??= $entry->entry_date?->toDateString() ?? now()->toDateString();
+        $reversedBy ??= auth()->id();
+        $this->periodGuard->assertPostingAllowed((int) $entry->company_id, $reversalDate);
+
+        return DB::transaction(function () use ($entry, $reversalDate, $reversedBy) {
+            $reversal = JournalEntry::create([
+                'company_id' => $entry->company_id,
+                'reference_type' => $entry->reference_type,
+                'reference_id' => $entry->reference_id,
+                'entry_date' => $reversalDate,
+                'description' => "Reversal of journal entry #{$entry->id}",
+                'status' => 'posted',
+                'entry_type' => 'reversal',
+                'posted_at' => now(),
+                'posted_by' => $reversedBy,
+                'reversed_entry_id' => $entry->id,
+                'created_by' => $reversedBy,
+            ]);
+
+            foreach ($entry->lines as $line) {
+                JournalLine::create([
+                    'journal_entry_id' => $reversal->id,
+                    'company_id' => $line->company_id,
+                    'account_id' => $line->account_id,
+                    'debit' => $line->credit,
+                    'credit' => $line->debit,
+                    'narration' => "Reversal: {$line->narration}",
+                ]);
+            }
+
+            $entry->forceFill([
+                'status' => 'reversed',
+                'reversal_entry_id' => $reversal->id,
+            ])->save();
+
+            return $reversal->load('lines.account');
+        });
     }
 
     private function normalizeLines(int $companyId, array $lines): array

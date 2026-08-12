@@ -20,6 +20,7 @@ class JournalEntry extends Model
         'posted_at',
         'posted_by',
         'reversed_entry_id',
+        'reversal_entry_id',
         'created_by',
     ];
 
@@ -41,5 +42,10 @@ class JournalEntry extends Model
     public function scopePosted($query)
     {
         return $query->where('status', 'posted');
+    }
+
+    public function scopeReportable($query)
+    {
+        return $query->whereIn('status', ['posted', 'reversed']);
     }
 }

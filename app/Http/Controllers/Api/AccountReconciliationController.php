@@ -57,7 +57,7 @@ class AccountReconciliationController extends Controller
                 'reference_type' => $line->journalEntry->reference_type,
                 'debit' => round((float)$line->debit, 2),
                 'credit' => round((float)$line->credit, 2),
-                'memo' => $line->memo,
+                'memo' => $line->narration,
             ];
         });
 

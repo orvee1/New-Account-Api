@@ -70,7 +70,7 @@ class AccountLedgerController extends Controller
                 'debit' => $debit,
                 'credit' => $credit,
                 'balance' => round($runningBalance, 2),
-                'memo' => $line->memo,
+                'memo' => $line->narration,
             ];
         });
 

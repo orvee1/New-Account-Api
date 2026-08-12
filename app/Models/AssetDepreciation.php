@@ -25,4 +25,9 @@ class AssetDepreciation extends Model
     {
         return $this->belongsTo(FixedAsset::class, 'fixed_asset_id'); // Asset model -> fixed_assets
     }
+
+    public function journalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
 }

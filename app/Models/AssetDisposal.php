@@ -21,4 +21,9 @@ class AssetDisposal extends Model
     {
         return $this->belongsTo(FixedAsset::class, 'fixed_asset_id');
     }
+
+    public function journalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
 }

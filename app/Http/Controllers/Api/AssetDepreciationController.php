@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AssetDepreciationResource;
 use App\Models\AssetDepreciation;
 use App\Models\FixedAsset;
+use App\Services\AccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +14,11 @@ use Illuminate\Validation\Rule;
 
 class AssetDepreciationController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     /**
      * GET /api/v1/asset-depreciations?fixed_asset_id=&active=1&search=&per_page=15
      */
@@ -89,6 +95,7 @@ class AssetDepreciationController extends Controller
         DB::beginTransaction();
         try {
             $row = AssetDepreciation::create($data);
+            $this->syncJournalEntry($row);
             DB::commit();
 
             return (new AssetDepreciationResource(
@@ -160,7 +167,9 @@ class AssetDepreciationController extends Controller
 
         DB::beginTransaction();
         try {
+            $this->postingService->deleteForReference($asset_depreciation->company_id, AssetDepreciation::class, $asset_depreciation->id);
             $asset_depreciation->update($data);
+            $this->syncJournalEntry($asset_depreciation->refresh());
             DB::commit();
 
             return (new AssetDepreciationResource(
@@ -181,7 +190,10 @@ class AssetDepreciationController extends Controller
     public function destroy(AssetDepreciation $asset_depreciation)
     {
         $this->authorizeCompany($asset_depreciation);
-        $asset_depreciation->delete();
+        DB::transaction(function () use ($asset_depreciation) {
+            $this->postingService->deleteForReference($asset_depreciation->company_id, AssetDepreciation::class, $asset_depreciation->id);
+            $asset_depreciation->delete();
+        });
         return response()->json(['message' => 'Depreciation entry deleted']);
     }
 
@@ -192,6 +204,42 @@ class AssetDepreciationController extends Controller
         if ($row->company_id !== (Auth::user()->company_id ?? null)) {
             abort(403, 'Unauthorized.');
         }
+    }
+
+    private function syncJournalEntry(AssetDepreciation $row): void
+    {
+        if (! $row->is_active || (float) $row->amount <= 0) {
+            $row->forceFill(['journal_entry_id' => null])->saveQuietly();
+            return;
+        }
+
+        $row->loadMissing('asset');
+        $entry = $this->postingService->post([
+            'company_id' => $row->company_id,
+            'reference_type' => AssetDepreciation::class,
+            'reference_id' => $row->id,
+            'entry_date' => $row->start_date?->toDateString() ?? now()->toDateString(),
+            'description' => 'Asset depreciation' . ($row->asset ? " - {$row->asset->name}" : ''),
+            'created_by' => Auth::id(),
+            'status' => 'posted',
+            'entry_type' => 'adjusting',
+            'lines' => [
+                [
+                    'key' => 'depreciation_expense',
+                    'debit' => $row->amount,
+                    'credit' => 0,
+                    'narration' => $row->debit_acc_name ?: 'Depreciation Expense',
+                ],
+                [
+                    'key' => 'accumulated_depreciation',
+                    'debit' => 0,
+                    'credit' => $row->amount,
+                    'narration' => $row->credit_acc_name ?: 'Accumulated Depreciation',
+                ],
+            ],
+        ]);
+
+        $row->forceFill(['journal_entry_id' => $entry->id])->saveQuietly();
     }
 
     private function computeAmountFromAsset(FixedAsset $asset, string $frequency = 'Monthly'): float
@@ -212,8 +260,9 @@ class AssetDepreciationController extends Controller
     private function normalize(Request $req): array
     {
         $map = [
-            'assetId'        => 'fixed_fixed_asset_id',
-            'fixed_fixed_asset_id' => 'fixed_fixed_asset_id',
+            'assetId'        => 'fixed_asset_id',
+            'fixedAssetId'   => 'fixed_asset_id',
+            'fixed_asset_id' => 'fixed_asset_id',
             'method'         => 'method',
             'frequency'      => 'frequency',
             'timeOfEntry'    => 'time_of_entry',

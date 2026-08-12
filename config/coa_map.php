@@ -16,4 +16,9 @@ return [
     'purchase_account' => '5.1.1.1',
     'cogs' => '5.1.1.1',
     'salary_expense' => '5.2.2.1',
+    'fixed_asset' => '1.2.1.11',
+    'accumulated_depreciation' => '1.2.1.10.1',
+    'depreciation_expense' => '5.2.9.1',
+    'gain_on_asset_disposal' => '4.2.3.1',
+    'loss_on_asset_disposal' => '5.2.18.1',
 ];

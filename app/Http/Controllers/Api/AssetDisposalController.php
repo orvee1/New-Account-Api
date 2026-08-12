@@ -3,8 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AssetDepreciation;
 use App\Models\AssetDisposal;
+use App\Models\ChartAccount;
 use App\Models\FixedAsset;
+use App\Models\JournalLine;
+use App\Services\AccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -12,6 +16,11 @@ use Illuminate\Validation\Rule;
 
 class AssetDisposalController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -78,6 +87,7 @@ class AssetDisposalController extends Controller
         DB::beginTransaction();
         try {
             $row = AssetDisposal::create($data);
+            $this->syncJournalEntry($row);
             DB::commit();
 
             return $row->loadMissing('asset:id,name,tag_serial_number');
@@ -124,7 +134,9 @@ class AssetDisposalController extends Controller
 
         DB::beginTransaction();
         try {
+            $this->postingService->deleteForReference($asset_disposal->company_id, AssetDisposal::class, $asset_disposal->id);
             $asset_disposal->update($data);
+            $this->syncJournalEntry($asset_disposal->refresh());
             DB::commit();
             return $asset_disposal->fresh()->loadMissing('asset:id,name,tag_serial_number');
         } catch (\Throwable $e) {
@@ -139,7 +151,10 @@ class AssetDisposalController extends Controller
     public function destroy(AssetDisposal $asset_disposal)
     {
         $this->authorizeCompany($asset_disposal);
-        $asset_disposal->delete();
+        DB::transaction(function () use ($asset_disposal) {
+            $this->postingService->deleteForReference($asset_disposal->company_id, AssetDisposal::class, $asset_disposal->id);
+            $asset_disposal->delete();
+        });
         return response()->json(['message' => 'Disposal deleted']);
     }
 
@@ -148,6 +163,121 @@ class AssetDisposalController extends Controller
         if ($row->company_id !== (Auth::user()->company_id ?? null)) {
             abort(403, 'Unauthorized.');
         }
+    }
+
+    private function syncJournalEntry(AssetDisposal $row): void
+    {
+        $row->loadMissing('asset');
+
+        if (! $row->asset) {
+            return;
+        }
+
+        $assetCost = round((float) $row->asset->amount, 2);
+        $proceeds = round((float) $row->disposal_value, 2);
+        $accumulatedDepreciation = min($assetCost, $this->accumulatedDepreciationForAsset($row->asset));
+        $bookValue = round($assetCost - $accumulatedDepreciation, 2);
+        $gainOrLoss = round($proceeds - $bookValue, 2);
+
+        $lines = [];
+
+        if ($proceeds > 0) {
+            $lines[] = [
+                'key' => 'cash',
+                'debit' => $proceeds,
+                'credit' => 0,
+                'narration' => "Asset disposal proceeds {$row->asset->name}",
+            ];
+        }
+
+        if ($accumulatedDepreciation > 0) {
+            $lines[] = [
+                'key' => 'accumulated_depreciation',
+                'debit' => $accumulatedDepreciation,
+                'credit' => 0,
+                'narration' => "Remove accumulated depreciation {$row->asset->name}",
+            ];
+        }
+
+        if ($gainOrLoss < 0) {
+            $lines[] = [
+                'key' => 'loss_on_asset_disposal',
+                'debit' => abs($gainOrLoss),
+                'credit' => 0,
+                'narration' => "Loss on disposal {$row->asset->name}",
+            ];
+        }
+
+        if ($assetCost > 0) {
+            $lines[] = [
+                'key' => 'fixed_asset',
+                'debit' => 0,
+                'credit' => $assetCost,
+                'narration' => "Remove fixed asset {$row->asset->name}",
+            ];
+        }
+
+        if ($gainOrLoss > 0) {
+            $lines[] = [
+                'key' => 'gain_on_asset_disposal',
+                'debit' => 0,
+                'credit' => $gainOrLoss,
+                'narration' => "Gain on disposal {$row->asset->name}",
+            ];
+        }
+
+        if (count($lines) < 2) {
+            $row->forceFill(['journal_entry_id' => null])->saveQuietly();
+            return;
+        }
+
+        $entry = $this->postingService->post([
+            'company_id' => $row->company_id,
+            'reference_type' => AssetDisposal::class,
+            'reference_id' => $row->id,
+            'entry_date' => $row->disposed_at?->toDateString() ?? now()->toDateString(),
+            'description' => "Asset disposal - {$row->asset->name}",
+            'created_by' => Auth::id(),
+            'status' => 'posted',
+            'entry_type' => 'normal',
+            'lines' => $lines,
+        ]);
+
+        $row->forceFill(['journal_entry_id' => $entry->id])->saveQuietly();
+    }
+
+    private function accumulatedDepreciationForAsset(FixedAsset $asset): float
+    {
+        $depreciationIds = AssetDepreciation::query()
+            ->where('company_id', $asset->company_id)
+            ->where('fixed_asset_id', $asset->id)
+            ->pluck('id');
+
+        if ($depreciationIds->isEmpty()) {
+            return 0.0;
+        }
+
+        $accountId = ChartAccount::query()
+            ->where('company_id', $asset->company_id)
+            ->where('code', config('coa_map.accumulated_depreciation'))
+            ->value('id');
+
+        if (! $accountId) {
+            return 0.0;
+        }
+
+        $totals = JournalLine::query()
+            ->selectRaw('SUM(debit) as debit, SUM(credit) as credit')
+            ->where('company_id', $asset->company_id)
+            ->where('account_id', $accountId)
+            ->whereHas('journalEntry', function ($query) use ($depreciationIds) {
+                $query->whereIn('status', ['posted', 'reversed'])
+                    ->where('reference_type', \App\Models\AssetDepreciation::class)
+                    ->whereIn('reference_id', $depreciationIds);
+            })
+            ->first();
+
+        return round((float) ($totals->credit ?? 0) - (float) ($totals->debit ?? 0), 2);
     }
 
     private function normalize(Request $req): array

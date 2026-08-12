@@ -6,12 +6,18 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\FixedAssetRequest;
 use App\Http\Resources\AssetResource;
 use App\Models\FixedAsset;
+use App\Services\AccountingPostingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class FixedAssetController extends Controller
 {
+    public function __construct(
+        private AccountingPostingService $postingService
+    ) {
+    }
+
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -66,6 +72,7 @@ class FixedAssetController extends Controller
         DB::beginTransaction();
         try {
             $fixedAsset = FixedAsset::create($data);
+            $this->syncJournalEntry($fixedAsset);
             DB::commit();
 
             return (new AssetResource($fixedAsset))
@@ -109,7 +116,9 @@ class FixedAssetController extends Controller
 
         DB::beginTransaction();
         try {
+            $this->postingService->deleteForReference($fixedAsset->company_id, FixedAsset::class, $fixedAsset->id);
             $fixedAsset->update($data);
+            $this->syncJournalEntry($fixedAsset->refresh());
             DB::commit();
 
             return (new AssetResource($fixedAsset->fresh()))
@@ -126,9 +135,54 @@ class FixedAssetController extends Controller
     public function destroy(FixedAsset $fixedAsset)
     {
         $this->authorizeCompany($fixedAsset);
-        $fixedAsset->delete();
+        DB::transaction(function () use ($fixedAsset) {
+            $this->postingService->deleteForReference($fixedAsset->company_id, FixedAsset::class, $fixedAsset->id);
+            $fixedAsset->delete();
+        });
 
         return response()->json(['message' => 'Asset deleted']);
+    }
+
+    private function syncJournalEntry(FixedAsset $fixedAsset): void
+    {
+        $amount = round((float) $fixedAsset->amount, 2);
+        if ($amount <= 0) {
+            $fixedAsset->forceFill(['journal_entry_id' => null])->saveQuietly();
+            return;
+        }
+
+        $creditKey = match ($fixedAsset->purchase_mode) {
+            'Cash Purchase' => 'cash',
+            'Bank Purchase' => 'bank',
+            default => 'accounts_payable',
+        };
+
+        $entry = $this->postingService->post([
+            'company_id' => $fixedAsset->company_id,
+            'reference_type' => FixedAsset::class,
+            'reference_id' => $fixedAsset->id,
+            'entry_date' => $fixedAsset->purchase_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Fixed asset capitalization - {$fixedAsset->name}",
+            'created_by' => Auth::id(),
+            'status' => 'posted',
+            'entry_type' => 'normal',
+            'lines' => [
+                [
+                    'key' => 'fixed_asset',
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => "Capitalize fixed asset {$fixedAsset->name}",
+                ],
+                [
+                    'key' => $creditKey,
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => "Fixed asset purchase {$fixedAsset->name}",
+                ],
+            ],
+        ]);
+
+        $fixedAsset->forceFill(['journal_entry_id' => $entry->id])->saveQuietly();
     }
 
     private function normalize(Request $req): array

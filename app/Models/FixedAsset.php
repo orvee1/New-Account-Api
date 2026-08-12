@@ -40,4 +40,8 @@ class FixedAsset extends Model
         return $this->hasMany(AssetDisposal::class, 'fixed_asset_id');
     }
 
+    public function journalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class);
+    }
 }

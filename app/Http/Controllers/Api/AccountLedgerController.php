@@ -41,7 +41,8 @@ class AccountLedgerController extends Controller
             ->where('account_id', $account->id)
             ->with('journalEntry')
             ->whereHas('journalEntry', function ($q) use ($startDate, $endDate) {
-                $q->whereDate('entry_date', '>=', $startDate)
+                $q->where('status', 'posted')
+                  ->whereDate('entry_date', '>=', $startDate)
                   ->whereDate('entry_date', '<=', $endDate);
             })
             ->get()
@@ -109,7 +110,8 @@ class AccountLedgerController extends Controller
             ->where('company_id', $companyId)
             ->where('account_id', $accountId)
             ->whereHas('journalEntry', function ($q) use ($date) {
-                $q->whereDate('entry_date', '<', $date);
+                $q->where('status', 'posted')
+                  ->whereDate('entry_date', '<', $date);
             })
             ->first();
 

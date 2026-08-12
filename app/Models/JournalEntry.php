@@ -15,7 +15,17 @@ class JournalEntry extends Model
         'reference_id',
         'reference_type',
         'description',
+        'status',
+        'entry_type',
+        'posted_at',
+        'posted_by',
+        'reversed_entry_id',
         'created_by',
+    ];
+
+    protected $casts = [
+        'entry_date' => 'date',
+        'posted_at' => 'datetime',
     ];
 
     public function company()
@@ -26,5 +36,10 @@ class JournalEntry extends Model
     public function lines()
     {
         return $this->hasMany(JournalLine::class);
+    }
+
+    public function scopePosted($query)
+    {
+        return $query->where('status', 'posted');
     }
 }

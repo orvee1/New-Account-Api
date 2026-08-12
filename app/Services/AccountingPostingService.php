@@ -11,7 +11,8 @@ use InvalidArgumentException;
 class AccountingPostingService
 {
     public function __construct(
-        private CoaAccountResolver $coaResolver
+        private CoaAccountResolver $coaResolver,
+        private AccountingPeriodGuard $periodGuard
     ) {
     }
 
@@ -23,6 +24,8 @@ class AccountingPostingService
         $entryDate = $payload['entry_date'] ?? now()->toDateString();
         $description = (string) ($payload['description'] ?? '');
         $createdBy = $payload['created_by'] ?? null;
+        $status = (string) ($payload['status'] ?? 'posted');
+        $entryType = (string) ($payload['entry_type'] ?? 'normal');
         $lines = $payload['lines'] ?? [];
 
         if ($companyId <= 0) {
@@ -37,7 +40,19 @@ class AccountingPostingService
             throw new InvalidArgumentException('At least two journal lines are required.');
         }
 
-        return DB::transaction(function () use ($companyId, $referenceType, $referenceId, $entryDate, $description, $createdBy, $lines) {
+        if (! in_array($status, ['draft', 'submitted', 'approved', 'posted', 'reversed', 'cancelled'], true)) {
+            throw new InvalidArgumentException('Journal entry status is invalid.');
+        }
+
+        if (! in_array($entryType, ['normal', 'adjusting', 'opening', 'closing', 'reversal'], true)) {
+            throw new InvalidArgumentException('Journal entry type is invalid.');
+        }
+
+        if ($status === 'posted') {
+            $this->periodGuard->assertPostingAllowed($companyId, $entryDate);
+        }
+
+        return DB::transaction(function () use ($companyId, $referenceType, $referenceId, $entryDate, $description, $createdBy, $status, $entryType, $lines) {
             $normalizedLines = $this->normalizeLines($companyId, $lines);
             $this->deleteForReference($companyId, $referenceType, $referenceId);
 
@@ -47,6 +62,10 @@ class AccountingPostingService
                 'reference_id' => $referenceId,
                 'entry_date' => $entryDate,
                 'description' => $description,
+                'status' => $status,
+                'entry_type' => $entryType,
+                'posted_at' => $status === 'posted' ? now() : null,
+                'posted_by' => $status === 'posted' ? $createdBy : null,
                 'created_by' => $createdBy,
             ]);
 

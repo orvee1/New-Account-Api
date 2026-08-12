@@ -13,6 +13,7 @@ class ManualJournal extends Model
 
     protected $fillable = [
         'company_id',
+        'journal_entry_id',
         'journal_number',
         'journal_date',
         'debit_account_id',
@@ -23,6 +24,7 @@ class ManualJournal extends Model
         'reference_number',
         'narration',
         'status',
+        'entry_type',
         'posted_by',
         'posted_date',
         'recorded_by',
@@ -38,6 +40,11 @@ class ManualJournal extends Model
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    public function journalEntry()
+    {
+        return $this->belongsTo(JournalEntry::class);
     }
 
     public function debitAccount()

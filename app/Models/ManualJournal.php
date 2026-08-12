@@ -20,6 +20,7 @@ class ManualJournal extends Model
         'credit_account_id',
         'debit_amount',
         'credit_amount',
+        'entries',
         'description',
         'reference_number',
         'narration',
@@ -35,6 +36,7 @@ class ManualJournal extends Model
         'posted_date' => 'date',
         'debit_amount' => 'decimal:2',
         'credit_amount' => 'decimal:2',
+        'entries' => 'array',
     ];
 
     public function company()

@@ -53,10 +53,13 @@ class ManualJournalController extends Controller
             'credit_account_id' => 'nullable|exists:chart_accounts,id',
             'debit_account_name' => 'nullable|string',
             'credit_account_name' => 'nullable|string',
+            'entries' => 'nullable|array|min:2',
+            'entries.*.account_id' => 'required_with:entries|exists:chart_accounts,id',
+            'entries.*.type' => 'required_with:entries|in:debit,credit',
+            'entries.*.amount' => 'required_with:entries|numeric|min:0.01',
         ]);
 
-        $validated['debit_account_id'] = $validated['debit_account_id'] ?? $this->resolveAccountId($validated['debit_account_name'] ?? null);
-        $validated['credit_account_id'] = $validated['credit_account_id'] ?? $this->resolveAccountId($validated['credit_account_name'] ?? null);
+        $validated = $this->normalizeManualJournalPayload($validated);
 
         if (empty($validated['debit_account_id']) || empty($validated['credit_account_id'])) {
             return response()->json(['message' => 'Account not found'], 422);
@@ -105,10 +108,13 @@ class ManualJournalController extends Controller
             'credit_account_id' => 'nullable|exists:chart_accounts,id',
             'debit_account_name' => 'nullable|string',
             'credit_account_name' => 'nullable|string',
+            'entries' => 'nullable|array|min:2',
+            'entries.*.account_id' => 'required_with:entries|exists:chart_accounts,id',
+            'entries.*.type' => 'required_with:entries|in:debit,credit',
+            'entries.*.amount' => 'required_with:entries|numeric|min:0.01',
         ]);
 
-        $validated['debit_account_id'] = $validated['debit_account_id'] ?? $this->resolveAccountId($validated['debit_account_name'] ?? null);
-        $validated['credit_account_id'] = $validated['credit_account_id'] ?? $this->resolveAccountId($validated['credit_account_name'] ?? null);
+        $validated = $this->normalizeManualJournalPayload($validated);
 
         if (empty($validated['debit_account_id']) || empty($validated['credit_account_id'])) {
             return response()->json(['message' => 'Account not found'], 422);
@@ -207,6 +213,40 @@ class ManualJournalController extends Controller
         }
     }
 
+    private function normalizeManualJournalPayload(array $validated): array
+    {
+        if (! empty($validated['entries'])) {
+            $totalDebit = 0.0;
+            $totalCredit = 0.0;
+            $debitAccountId = null;
+            $creditAccountId = null;
+
+            foreach ($validated['entries'] as $entry) {
+                $amount = round((float) ($entry['amount'] ?? 0), 2);
+
+                if (($entry['type'] ?? null) === 'debit') {
+                    $totalDebit += $amount;
+                    $debitAccountId ??= $entry['account_id'] ?? null;
+                }
+
+                if (($entry['type'] ?? null) === 'credit') {
+                    $totalCredit += $amount;
+                    $creditAccountId ??= $entry['account_id'] ?? null;
+                }
+            }
+
+            $validated['debit_amount'] = $totalDebit;
+            $validated['credit_amount'] = $totalCredit;
+            $validated['debit_account_id'] = $validated['debit_account_id'] ?? $debitAccountId;
+            $validated['credit_account_id'] = $validated['credit_account_id'] ?? $creditAccountId;
+        }
+
+        $validated['debit_account_id'] = $validated['debit_account_id'] ?? $this->resolveAccountId($validated['debit_account_name'] ?? null);
+        $validated['credit_account_id'] = $validated['credit_account_id'] ?? $this->resolveAccountId($validated['credit_account_name'] ?? null);
+
+        return $validated;
+    }
+
     private function syncPostedJournalEntry(ManualJournal $journal): void
     {
         if (! in_array($journal->status, ['posted', 'completed'], true)) {
@@ -216,16 +256,18 @@ class ManualJournalController extends Controller
             return;
         }
 
-        $entry = $this->postingService->post([
-            'company_id' => $journal->company_id,
-            'reference_type' => ManualJournal::class,
-            'reference_id' => $journal->id,
-            'entry_date' => $journal->journal_date?->toDateString() ?? now()->toDateString(),
-            'description' => $journal->description ?: "Manual Journal #{$journal->journal_number}",
-            'created_by' => auth()->id(),
-            'status' => 'posted',
-            'entry_type' => $journal->entry_type ?: 'normal',
-            'lines' => [
+        $lines = ! empty($journal->entries)
+            ? collect($journal->entries)->map(function ($line) use ($journal) {
+                $amount = round((float) ($line['amount'] ?? 0), 2);
+
+                return [
+                    'account_id' => $line['account_id'] ?? null,
+                    'debit' => ($line['type'] ?? null) === 'debit' ? $amount : 0,
+                    'credit' => ($line['type'] ?? null) === 'credit' ? $amount : 0,
+                    'narration' => $journal->narration,
+                ];
+            })->all()
+            : [
                 [
                     'account_id' => $journal->debit_account_id,
                     'debit' => $journal->debit_amount,
@@ -238,7 +280,18 @@ class ManualJournalController extends Controller
                     'credit' => $journal->credit_amount,
                     'narration' => $journal->narration,
                 ],
-            ],
+            ];
+
+        $entry = $this->postingService->post([
+            'company_id' => $journal->company_id,
+            'reference_type' => ManualJournal::class,
+            'reference_id' => $journal->id,
+            'entry_date' => $journal->journal_date?->toDateString() ?? now()->toDateString(),
+            'description' => $journal->description ?: "Manual Journal #{$journal->journal_number}",
+            'created_by' => auth()->id(),
+            'status' => 'posted',
+            'entry_type' => $journal->entry_type ?: 'normal',
+            'lines' => $lines,
         ]);
 
         $journal->forceFill([

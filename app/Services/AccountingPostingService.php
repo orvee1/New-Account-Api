@@ -52,8 +52,9 @@ class AccountingPostingService
             $this->periodGuard->assertPostingAllowed($companyId, $entryDate);
         }
 
-        return DB::transaction(function () use ($companyId, $referenceType, $referenceId, $entryDate, $description, $createdBy, $status, $entryType, $lines) {
-            $normalizedLines = $this->normalizeLines($companyId, $lines);
+        $normalizedLines = $this->normalizeLines($companyId, $lines);
+
+        return DB::transaction(function () use ($companyId, $referenceType, $referenceId, $entryDate, $description, $createdBy, $status, $entryType, $normalizedLines) {
             $this->deleteForReference($companyId, $referenceType, $referenceId);
 
             $entry = JournalEntry::create([

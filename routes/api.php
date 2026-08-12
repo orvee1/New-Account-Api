@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AccountLedgerController;
 use App\Http\Controllers\Api\AccountReconciliationController;
+use App\Http\Controllers\Api\AccountingPeriodController;
 use App\Http\Controllers\Api\AssetDepreciationController;
 use App\Http\Controllers\Api\AssetDisposalController;
 use App\Http\Controllers\Api\Auth\ForgotPasswordController;
@@ -143,6 +144,16 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
     Route::get('/settings/purchase-form-config', [SettingController::class, 'getPurchaseFormConfig']);
     Route::post('/settings/purchase-form-config', [SettingController::class, 'updatePurchaseFormConfig']);
 
+    // Accounting Periods
+    Route::get('fiscal-years', [AccountingPeriodController::class, 'fiscalYears']);
+    Route::post('fiscal-years', [AccountingPeriodController::class, 'storeFiscalYear']);
+    Route::post('fiscal-years/{fiscalYear}/close', [AccountingPeriodController::class, 'closeFiscalYear']);
+    Route::post('fiscal-years/{fiscalYear}/reopen', [AccountingPeriodController::class, 'reopenFiscalYear']);
+    Route::get('accounting-periods', [AccountingPeriodController::class, 'periods']);
+    Route::post('accounting-periods/{accountingPeriod}/close', [AccountingPeriodController::class, 'closePeriod']);
+    Route::post('accounting-periods/{accountingPeriod}/lock', [AccountingPeriodController::class, 'lockPeriod']);
+    Route::post('accounting-periods/{accountingPeriod}/reopen', [AccountingPeriodController::class, 'reopenPeriod']);
+
     // Units of Measure
     Route::get('/units-of-measure', [UomController::class, 'index']);
     Route::post('/units-of-measure', [UomController::class, 'store']);
@@ -200,6 +211,7 @@ Route::middleware(['auth:sanctum', 'verified'])->group(function () {
         Route::get('income-statement', [ReportController::class, 'incomeStatement']);
         Route::get('balance-sheet', [ReportController::class, 'balanceSheet']);
         Route::get('trial-balance', [ReportController::class, 'trialBalance']);
+        Route::get('adjusted-trial-balance', [ReportController::class, 'adjustedTrialBalance']);
         Route::get('owners-equity', [ReportController::class, 'ownersEquity']);
         Route::get('stock-report', [ReportController::class, 'stockReport']);
         Route::get('cash-flow', [ReportController::class, 'cashFlow']);

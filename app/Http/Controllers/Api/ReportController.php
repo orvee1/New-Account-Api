@@ -246,6 +246,68 @@ class ReportController extends Controller
         ]);
     }
 
+    public function adjustedTrialBalance(Request $request)
+    {
+        $companyId = $this->companyId();
+        $asOfDate = $request->query('as_of_date', Carbon::now()->toDateString());
+
+        $baseTotals = $this->accountTotalsForPeriod($companyId, null, $asOfDate, ['normal', 'opening', 'closing']);
+        $adjustmentTotals = $this->accountTotalsForPeriod($companyId, null, $asOfDate, ['adjusting']);
+
+        $accountIds = collect($baseTotals)->pluck('account_id')
+            ->merge(collect($adjustmentTotals)->pluck('account_id'))
+            ->unique()
+            ->values();
+
+        $baseByAccount = collect($baseTotals)->keyBy('account_id');
+        $adjustmentByAccount = collect($adjustmentTotals)->keyBy('account_id');
+
+        $accounts = [];
+        $totalDebit = 0;
+        $totalCredit = 0;
+        $totalAdjustmentDebit = 0;
+        $totalAdjustmentCredit = 0;
+
+        foreach ($accountIds as $accountId) {
+            $base = $baseByAccount->get($accountId);
+            $adjustment = $adjustmentByAccount->get($accountId);
+            $account = $base['account'] ?? $adjustment['account'] ?? null;
+
+            $baseDebit = (float) ($base['debit'] ?? 0);
+            $baseCredit = (float) ($base['credit'] ?? 0);
+            $adjustmentDebit = (float) ($adjustment['debit'] ?? 0);
+            $adjustmentCredit = (float) ($adjustment['credit'] ?? 0);
+            $adjustedDebit = $baseDebit + $adjustmentDebit;
+            $adjustedCredit = $baseCredit + $adjustmentCredit;
+
+            $totalDebit += $adjustedDebit;
+            $totalCredit += $adjustedCredit;
+            $totalAdjustmentDebit += $adjustmentDebit;
+            $totalAdjustmentCredit += $adjustmentCredit;
+
+            $accounts[] = [
+                'name' => $account?->name ?? '',
+                'code' => $account?->code ?? '',
+                'trialDebit' => $this->roundNumber($baseDebit),
+                'trialCredit' => $this->roundNumber($baseCredit),
+                'adjustmentDebit' => $this->roundNumber($adjustmentDebit),
+                'adjustmentCredit' => $this->roundNumber($adjustmentCredit),
+                'adjustedDebit' => $this->roundNumber($adjustedDebit),
+                'adjustedCredit' => $this->roundNumber($adjustedCredit),
+            ];
+        }
+
+        return response()->json([
+            'as_of_date' => $asOfDate,
+            'accounts' => $accounts,
+            'totalAdjustmentDebit' => $this->roundNumber($totalAdjustmentDebit),
+            'totalAdjustmentCredit' => $this->roundNumber($totalAdjustmentCredit),
+            'totalDebit' => $this->roundNumber($totalDebit),
+            'totalCredit' => $this->roundNumber($totalCredit),
+            'isBalanced' => round($totalDebit, 2) === round($totalCredit, 2),
+        ]);
+    }
+
     public function ownersEquity(Request $request)
     {
         $companyId = $this->companyId();
@@ -510,7 +572,7 @@ class ReportController extends Controller
         return (int) (auth()->user()->company_id ?? 0);
     }
 
-    private function accountTotalsForPeriod(int $companyId, ?string $startDate, string $endDate): array
+    private function accountTotalsForPeriod(int $companyId, ?string $startDate, string $endDate, ?array $entryTypes = null): array
     {
         $query = JournalLine::query()
             ->select([
@@ -525,6 +587,9 @@ class ReportController extends Controller
                     $q->whereDate('entry_date', '>=', $startDate);
                 }
                 $q->whereDate('entry_date', '<=', $endDate);
+                if ($entryTypes !== null) {
+                    $q->whereIn('entry_type', $entryTypes);
+                }
             })
             ->groupBy('account_id');
 

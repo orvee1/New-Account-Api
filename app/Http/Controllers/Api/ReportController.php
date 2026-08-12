@@ -581,7 +581,7 @@ class ReportController extends Controller
                 DB::raw('SUM(credit) as credit'),
             ])
             ->where('company_id', $companyId)
-            ->whereHas('journalEntry', function ($q) use ($startDate, $endDate) {
+            ->whereHas('journalEntry', function ($q) use ($startDate, $endDate, $entryTypes) {
                 $q->whereIn('status', ['posted', 'reversed']);
                 if ($startDate) {
                     $q->whereDate('entry_date', '>=', $startDate);

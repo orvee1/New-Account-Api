@@ -66,7 +66,7 @@ class AccountLedgerController extends Controller
                 'date' => $line->journalEntry->entry_date ?? $line->created_at->toDateString(),
                 'description' => $line->journalEntry->description ?? 'Journal Entry',
                 'reference_id' => $line->journalEntry->reference_id,
-                'reference_type' => $line->journalEntry->reference_type,
+                'reference_type' => $this->displayReferenceType($line->journalEntry?->reference_type),
                 'debit' => $debit,
                 'credit' => $credit,
                 'balance' => round($runningBalance, 2),
@@ -119,5 +119,14 @@ class AccountLedgerController extends Controller
         $credit = (float) ($totals->credit ?? 0);
 
         return $debit - $credit;
+    }
+
+    private function displayReferenceType(?string $referenceType): ?string
+    {
+        if (! $referenceType) {
+            return null;
+        }
+
+        return str_contains($referenceType, '\\') ? class_basename($referenceType) : $referenceType;
     }
 }

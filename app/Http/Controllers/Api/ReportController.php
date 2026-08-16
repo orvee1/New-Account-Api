@@ -231,6 +231,7 @@ class ReportController extends Controller
             $totalCredit += $credit;
 
             $accounts[] = [
+                'account_id' => $row['account_id'] ?? null,
                 'name' => $row['name'] ?? '',
                 'code' => $row['code'] ?? '',
                 'debit' => $this->roundNumber($debit),

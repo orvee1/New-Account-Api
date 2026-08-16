@@ -54,7 +54,7 @@ class AccountReconciliationController extends Controller
                 'date' => $line->journalEntry->entry_date ?? $line->created_at->toDateString(),
                 'description' => $line->journalEntry->description ?? 'Journal Entry',
                 'reference_id' => $line->journalEntry->reference_id,
-                'reference_type' => $line->journalEntry->reference_type,
+                'reference_type' => $this->displayReferenceType($line->journalEntry?->reference_type),
                 'debit' => round((float)$line->debit, 2),
                 'credit' => round((float)$line->credit, 2),
                 'memo' => $line->narration,
@@ -224,5 +224,14 @@ class AccountReconciliationController extends Controller
                 'message' => 'Error reverting reconciliation: ' . $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function displayReferenceType(?string $referenceType): ?string
+    {
+        if (! $referenceType) {
+            return null;
+        }
+
+        return str_contains($referenceType, '\\') ? class_basename($referenceType) : $referenceType;
     }
 }

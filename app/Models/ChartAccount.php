@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 
 class ChartAccount extends Model
 {
@@ -18,6 +19,24 @@ class ChartAccount extends Model
         'sort_order'=> 'integer',
         'opening_balance' => 'decimal:2',
     ];
+
+    private static function uniqueSlug(string $name, int $companyId, ?int $ignoreId = null): string
+    {
+        $base = Str::slug($name) ?: 'account';
+        $slug = $base;
+        $counter = 2;
+
+        while (static::query()
+            ->where('company_id', $companyId)
+            ->where('slug', $slug)
+            ->when($ignoreId, fn ($query) => $query->where('id', '!=', $ignoreId))
+            ->exists()) {
+            $slug = "{$base}-{$counter}";
+            $counter++;
+        }
+
+        return $slug;
+    }
 
     /* ---------------- Relations ---------------- */
 
@@ -201,6 +220,10 @@ class ChartAccount extends Model
                 $model->code = $model->generateCode();
             }
 
+            if (blank($model->slug) && filled($model->name)) {
+                $model->slug = static::uniqueSlug($model->name, (int) $model->company_id);
+            }
+
             // Inherit base_type and normal_balance from parent
             if ($model->parent_id) {
                 if (!$model->relationLoaded('parent')) {
@@ -238,6 +261,10 @@ class ChartAccount extends Model
         static::updating(function (self $model) {
             if (Auth::check()) {
                 $model->updated_by = Auth::id();
+            }
+
+            if (blank($model->slug) && filled($model->name)) {
+                $model->slug = static::uniqueSlug($model->name, (int) $model->company_id, $model->id);
             }
         });
 

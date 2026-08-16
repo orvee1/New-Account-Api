@@ -96,9 +96,22 @@ class ProductOpeningStockService
 
     public function getInventoryAccount(int $companyId): ?ChartAccount
     {
+        $inventoryCode = config('coa_map.inventory', '1.1.5.1');
+
         $inventory = ChartAccount::query()
             ->where('company_id', $companyId)
-            ->where('slug', 'inventory')
+            ->where('code', $inventoryCode)
+            ->where('type', 'ledger')
+            ->first();
+
+        if ($inventory) return $inventory;
+
+        $inventory = ChartAccount::query()
+            ->where('company_id', $companyId)
+            ->where(function ($query) {
+                $query->where('slug', 'inventory-ledger')
+                    ->orWhere('name', 'Inventory Ledger');
+            })
             ->where('type', 'ledger')
             ->first();
 
@@ -115,11 +128,11 @@ class ProductOpeningStockService
                 [
                     'company_id' => $companyId,
                     'parent_id'  => $inventoryGroup->id,
-                    'name'       => 'Inventory',
+                    'name'       => 'Inventory Ledger',
                 ],
                 [
                     'type' => 'ledger',
-                    'slug' => 'inventory',
+                    'slug' => 'inventory-ledger',
                 ]
             );
 
@@ -143,11 +156,11 @@ class ProductOpeningStockService
             [
                 'company_id' => $companyId,
                 'parent_id'  => $parent->id,
-                'name'       => 'Inventory',
+                'name'       => 'Inventory Ledger',
             ],
             [
                 'type' => 'ledger',
-                'slug' => 'inventory',
+                'slug' => 'inventory-ledger',
             ]
         );
 

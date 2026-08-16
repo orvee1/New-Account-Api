@@ -34,6 +34,33 @@ class PartyAccountService
         );
     }
 
+    public function createVendorAdvanceAccount(Vendor $vendor): ?ChartAccount
+    {
+        $parent = $this->getVendorAdvanceGroup($vendor->company_id);
+        if (!$parent) {
+            return null;
+        }
+
+        $label = $vendor->display_name ?: $vendor->name;
+        $suffix = $vendor->vendor_number ? " ({$vendor->vendor_number})" : '';
+        $name = "Vendor Advance - {$label}{$suffix}";
+
+        return ChartAccount::firstOrCreate(
+            [
+                'company_id' => $vendor->company_id,
+                'parent_id' => $parent->id,
+                'name' => $name,
+            ],
+            [
+                'type' => 'ledger',
+                'slug' => Str::slug($name),
+                'is_active' => true,
+                'base_type' => 'asset',
+                'normal_balance' => 'debit',
+            ]
+        );
+    }
+
     public function createCustomerAccount(Customer $customer): ?ChartAccount
     {
         $parent = $this->getCustomerReceivableGroup($customer->company_id);
@@ -130,6 +157,40 @@ class PartyAccountService
         ]);
     }
 
+    private function getVendorAdvanceGroup(int $companyId): ?ChartAccount
+    {
+        $parent = $this->findCurrentAssetGroup($companyId);
+        if (!$parent) return null;
+
+        $group = ChartAccount::where('company_id', $companyId)
+            ->where('parent_id', $parent->id)
+            ->where(function($q) {
+                $q->where('name', 'Vendor Advances')
+                  ->orWhere('name', 'Advance to Vendors')
+                  ->orWhere('slug', 'vendor-advances');
+            })
+            ->first();
+
+        if ($group) return $group;
+
+        $code = $parent->code ? $parent->code . '.99' : null;
+        if ($code && ChartAccount::where('company_id', $companyId)->where('code', $code)->exists()) {
+            $code = null;
+        }
+
+        return ChartAccount::create([
+            'company_id' => $companyId,
+            'parent_id' => $parent->id,
+            'name' => 'Vendor Advances',
+            'type' => 'group',
+            'slug' => 'vendor-advances',
+            'is_active' => true,
+            'code' => $code,
+            'base_type' => 'asset',
+            'normal_balance' => 'debit',
+        ]);
+    }
+
     private function findAccountsPayableGroup(int $companyId): ?ChartAccount
     {
         $query = ChartAccount::query()
@@ -173,6 +234,30 @@ class PartyAccountService
 
         return (clone $query)
             ->where('code', 'like', '1.1.4%')
+            ->first();
+    }
+
+    private function findCurrentAssetGroup(int $companyId): ?ChartAccount
+    {
+        $query = ChartAccount::query()
+            ->where('company_id', $companyId)
+            ->where('type', 'group');
+
+        $parent = (clone $query)
+            ->whereIn('slug', ['current-asset', 'current-assets'])
+            ->first();
+
+        if ($parent) return $parent;
+
+        $parent = (clone $query)
+            ->whereIn('name', ['Current Asset', 'Current Assets'])
+            ->first();
+
+        if ($parent) return $parent;
+
+        return (clone $query)
+            ->where('code', 'like', '1.1%')
+            ->orderBy('code')
             ->first();
     }
 }

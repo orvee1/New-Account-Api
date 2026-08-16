@@ -12,6 +12,7 @@ use App\Models\PurchaseReturn;
 use App\Models\PurchaseReturnItem;
 use App\Models\InventoryLedger;
 use App\Models\InventoryMovement;
+use App\Models\JournalLine;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +21,8 @@ use Exception;
 class PurchaseService
 {
     public function __construct(
-        private AccountingPostingService $postingService
+        private AccountingPostingService $postingService,
+        private PartyAccountService $partyAccounts
     ) {
     }
 
@@ -219,7 +221,7 @@ class PurchaseService
 
     private function generateJournalEntries(PurchaseBill $bill, bool $isVatRegistered): void
     {
-        $bill->loadMissing('items.product');
+        $bill->loadMissing('items.product', 'vendor');
 
         $inventoryDebit = 0.0;
         $inputVatDebit = 0.0;
@@ -262,13 +264,42 @@ class PurchaseService
             ];
         }
 
-        if ((float) $bill->total_amount > 0) {
+        $billPayable = round((float) $bill->total_amount, 2);
+        $advanceApplied = 0.0;
+        $advanceAccount = null;
+
+        if ($bill->vendor && $billPayable > 0) {
+            $advanceAccount = $this->partyAccounts->createVendorAdvanceAccount($bill->vendor);
+            $availableAdvance = $advanceAccount
+                ? $this->availableVendorAdvanceBalance($bill->company_id, $advanceAccount->id)
+                : 0.0;
+            $advanceApplied = min($billPayable, $availableAdvance);
+            $billPayable = round($billPayable - $advanceApplied, 2);
+        }
+
+        if ($advanceApplied > 0 && $advanceAccount) {
             $lines[] = [
-                'key' => 'accounts_payable',
+                'account_id' => $advanceAccount->id,
                 'debit' => 0,
-                'credit' => round((float) $bill->total_amount, 2),
+                'credit' => round($advanceApplied, 2),
+                'narration' => "Vendor advance applied {$bill->bill_no}",
+            ];
+        }
+
+        if ($billPayable > 0) {
+            $payableLine = [
+                'debit' => 0,
+                'credit' => $billPayable,
                 'narration' => "Vendor payable {$bill->bill_no}",
             ];
+
+            if ($bill->vendor?->chart_account_id) {
+                $payableLine['account_id'] = $bill->vendor->chart_account_id;
+            } else {
+                $payableLine['key'] = 'accounts_payable';
+            }
+
+            $lines[] = $payableLine;
         }
 
         if (round($aitCredit, 2) > 0) {
@@ -305,6 +336,18 @@ class PurchaseService
             'created_by' => Auth::id() ?? $bill->created_by,
             'lines' => $lines,
         ]);
+    }
+
+    private function availableVendorAdvanceBalance(int $companyId, int $advanceAccountId): float
+    {
+        $balance = JournalLine::query()
+            ->where('company_id', $companyId)
+            ->where('account_id', $advanceAccountId)
+            ->whereHas('journalEntry', fn ($query) => $query->whereIn('status', ['posted', 'reversed']))
+            ->selectRaw('COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0) as balance')
+            ->value('balance');
+
+        return max(0.0, round((float) $balance, 2));
     }
 
     public function updateBill(PurchaseBill $bill, array $payload): PurchaseBill

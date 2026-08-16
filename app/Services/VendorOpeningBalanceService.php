@@ -31,7 +31,7 @@ class VendorOpeningBalanceService
 
         $openingBalanceAccount = $this->getOpeningBalanceAdjustmentAccount($companyId);
         $vendorPayableAccount  = $vendor->chart_account_id ?: $this->getVendorPayableAccount($companyId);
-        $vendorAdvanceAccount  = $this->getVendorAdvanceAccount($companyId);
+        $vendorAdvanceAccount  = app(PartyAccountService::class)->createVendorAdvanceAccount($vendor)?->id;
 
         if (!$openingBalanceAccount || !$vendorPayableAccount || !$vendorAdvanceAccount) {
             Log::warning("Required chart accounts are missing for Vendor Opening Balance. Vendor ID: {$vendor->id}");
@@ -203,42 +203,4 @@ class VendorOpeningBalanceService
         return $vendorPayable->id ?? null;
     }
 
-    /**
-     * Get Vendor Advance account ID
-     */
-    private function getVendorAdvanceAccount(int $companyId)
-    {
-        $vendorAdvanceAccount = ChartAccount::where('company_id', $companyId)
-            ->where('slug', 'vendor-advance')
-            ->where('type', 'ledger')
-            ->first();
-
-        if (!$vendorAdvanceAccount) {
-            $parent = ChartAccount::where('company_id', $companyId)
-                ->where('type', 'group')
-                ->where(function($q) {
-                    $q->whereIn('slug', ['other-current-liabilities', 'current-liabilities'])
-                      ->orWhereIn('name', ['Other Current Liabilities', 'Current Liabilities']);
-                })->first();
-
-            if ($parent) {
-                $vendorAdvanceAccount = ChartAccount::query()->firstOrCreate(
-                    [
-                        'company_id' => $companyId,
-                        'parent_id'  => $parent->id,
-                        'name'       => 'Vendor Advance',
-                    ],
-                    [
-                        'type' => 'ledger',
-                        'slug' => 'vendor-advance',
-                    ]
-                );
-                if (blank($vendorAdvanceAccount->path) || $vendorAdvanceAccount->path === '/') {
-                    $vendorAdvanceAccount->path = rtrim($parent->path, '/') . '/' . $vendorAdvanceAccount->id;
-                    $vendorAdvanceAccount->save();
-                }
-            }
-        }
-        return $vendorAdvanceAccount->id ?? null;;
-    }
 }

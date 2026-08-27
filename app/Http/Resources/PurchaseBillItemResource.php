@@ -10,12 +10,22 @@ class PurchaseBillItemResource extends JsonResource
     {
         return [
             'id'                       => (int) $this->id,
+            'product_id'               => (int) $this->product_id,
             'product'                  => [
                 'id'   => (int) $this->product_id,
                 'name' => (string) ($this->product->name ?? ''),
             ],
             'purchase_uom_id'          => (int) $this->purchase_uom_id,
+            'purchase_uom'             => [
+                'id' => (int) $this->purchase_uom_id,
+                'name' => (string) ($this->purchaseUom->uom->name ?? $this->purchaseUom->name ?? ''),
+            ],
             'price_uom_id'             => (int) $this->price_uom_id,
+            'price_uom'                => [
+                'id' => (int) $this->price_uom_id,
+                'name' => (string) ($this->priceUom->uom->name ?? $this->priceUom->name ?? ''),
+            ],
+            'warehouse_id'             => $this->warehouse_id ? (int) $this->warehouse_id : null,
             'quantity_in_purchase_uom' => (float) $this->quantity_in_purchase_uom,
             'quantity_in_base_uom'     => (float) $this->quantity_in_base_uom,
             'unit_price_original'      => (float) $this->unit_price_original,

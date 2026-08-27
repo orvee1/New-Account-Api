@@ -10,6 +10,7 @@ use App\Models\PurchaseBill;
 use App\Models\PurchaseBillItem;
 use App\Models\PurchaseReturn;
 use App\Models\PurchaseReturnItem;
+use App\Models\Warehouse;
 use App\Models\InventoryLedger;
 use App\Models\InventoryMovement;
 use App\Models\JournalLine;
@@ -22,7 +23,8 @@ class PurchaseService
 {
     public function __construct(
         private AccountingPostingService $postingService,
-        private PartyAccountService $partyAccounts
+        private PartyAccountService $partyAccounts,
+        private StockService $stockService
     ) {
     }
 
@@ -160,6 +162,8 @@ class PurchaseService
                     $newAvg = (($oldStock * $oldAvg) + ($qtyInBase * $netUnitCost)) / $newStock;
                 }
 
+                $warehouseId = $this->resolveWarehouseId($bill, $product, $itemData);
+
                 // Update Product
                 $product->update([
                     'current_stock_in_base_uom' => $newStock,
@@ -178,6 +182,18 @@ class PurchaseService
                     'total_cost'            => $qtyInBase * $netUnitCost,
                     'new_weighted_avg_cost' => $newAvg,
                 ]);
+
+                if ($warehouseId && in_array($product->product_type, ['Stock', 'Combo'], true)) {
+                    $this->stockService->addPurchaseStock(
+                        $product,
+                        $warehouseId,
+                        $qtyInBase,
+                        $netUnitCost,
+                        $bill,
+                        $bill->bill_date?->toDateString(),
+                        $bill->created_by
+                    );
+                }
             }
 
             // Save Item
@@ -213,6 +229,7 @@ class PurchaseService
                 'weighted_avg_cost_before' => $oldAvg,
                 'weighted_avg_cost_after'  => $newAvg,
                 'line_total'               => $lineSubtotal + ($bill->vat_mode === 'exclusive' ? $vatAmount : 0),
+                'warehouse_id'             => $warehouseId ?? $this->resolveWarehouseId($bill, $product, $itemData),
             ]);
 
             // Accumulate Totals
@@ -458,6 +475,18 @@ class PurchaseService
                     'total_cost'            => $removedValue,
                     'new_weighted_avg_cost' => $newAvg,
                 ]);
+
+                if ($item->warehouse_id && in_array($product->product_type, ['Stock', 'Combo'], true)) {
+                    $this->stockService->removePurchaseStock(
+                        $product,
+                        (int) $item->warehouse_id,
+                        $removedQty,
+                        $removedCost,
+                        $bill,
+                        $bill->bill_date?->toDateString(),
+                        Auth::id() ?? $bill->created_by
+                    );
+                }
             }
         }
 
@@ -591,6 +620,23 @@ class PurchaseService
         
         if ($val === null) return $default;
         return filter_var($val, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function resolveWarehouseId(PurchaseBill $bill, Product $product, array $itemData): ?int
+    {
+        $warehouseId = Arr::get($itemData, 'warehouse_id')
+            ?? $bill->warehouse_id
+            ?? $product->warehouse_id;
+
+        if ($warehouseId) {
+            return (int) $warehouseId;
+        }
+
+        return Warehouse::query()
+            ->where('company_id', $bill->company_id)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->value('id');
     }
 
 }

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Product;
+use App\Models\Warehouse;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 
@@ -18,7 +19,9 @@ class ProductService
         $companyId = auth('sanctum')->user()->company_id;
 
         // ✅ FIX: warehouse_id default (no $product reference before create)
-        $warehouseId = array_key_exists('warehouse_id', $data) ? (int)$data['warehouse_id'] : null;
+        $warehouseId = array_key_exists('warehouse_id', $data) && $data['warehouse_id']
+            ? (int) $data['warehouse_id']
+            : null;
 
         $product = Product::create([
             'company_id'    => $companyId,
@@ -93,11 +96,19 @@ class ProductService
         }
 
         // ✅ opening stock + warehouse wise stock + journal
-        if (($data['product_type'] ?? null) === 'Stock' && !empty($data['opening_quantity'])) {
+        if (($data['product_type'] ?? null) === 'Stock' && array_key_exists('opening_quantity', $data)) {
 
             if (!$warehouseId) {
                 // opening qty দিলে warehouse বাধ্যতামূলক হওয়া ভালো
-                throw new \Exception('Warehouse is required when opening_quantity is provided.');
+                $warehouseId = Warehouse::query()
+                    ->where('company_id', $companyId)
+                    ->orderByDesc('is_default')
+                    ->orderBy('id')
+                    ->value('id');
+            }
+
+            if (!$warehouseId) {
+                throw new \Exception('Warehouse is required to create a stock record.');
             }
 
             $openingQty = (float) $data['opening_quantity'];
@@ -115,8 +126,10 @@ class ProductService
             // 1) stock table update + movement create
             $this->stockService->addOpeningStock($product, $warehouseId, $openingQty, $unitCost, $openingDate);
 
-            // 2) accounting journal (Inventory DR, Opening Balances CR)
-            $this->openingStockJournalService->createOpeningStockJournal($product, $openingQty, $unitCost, $openingDate);
+            if ($openingQty > 0) {
+                // 2) accounting journal (Inventory DR, Opening Balances CR)
+                $this->openingStockJournalService->createOpeningStockJournal($product, $openingQty, $unitCost, $openingDate);
+            }
         }
 
         // combo items

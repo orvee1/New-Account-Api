@@ -10,6 +10,7 @@ class PurchaseBillResource extends JsonResource
     {
         return [
             'id'                       => (int) $this->id,
+            'vendor_id'                => (int) $this->vendor_id,
             'bill_no'                  => (string) $this->bill_no,
             'bill_date'                => $this->bill_date instanceof \DateTimeInterface ? $this->bill_date->format('Y-m-d') : $this->bill_date,
             'due_date'                 => $this->due_date instanceof \DateTimeInterface ? $this->due_date->format('Y-m-d') : $this->due_date,

@@ -33,11 +33,11 @@ class PurchaseBillController extends Controller
         return PurchaseBillResource::collection($q->paginate($req->integer('per_page', 20)));
     }
 
-    // GET /api/purchase-bills/{bill}
-    public function show(PurchaseBill $bill)
+    // GET /api/purchase-bills/{purchase_bill}
+    public function show(PurchaseBill $purchaseBill)
     {
-        $bill->load(['vendor','items.product']);
-        return PurchaseBillResource::make($bill);
+        $purchaseBill->load(['vendor','items.product','items.purchaseUom.uom','items.priceUom.uom']);
+        return PurchaseBillResource::make($purchaseBill);
     }
 
     // POST /api/purchase-bills

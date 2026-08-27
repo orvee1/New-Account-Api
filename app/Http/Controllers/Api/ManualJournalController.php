@@ -34,7 +34,10 @@ class ManualJournalController extends Controller
             ->when($request->filled('date_to'), fn($q) => $q->whereDate('journal_date', '<=', $request->date('date_to')))
             ->orderByDesc('id');
 
-        return response()->json($query->paginate($request->input('per_page', 15))->withQueryString());
+        $journals = $query->paginate($request->input('per_page', 15))->withQueryString();
+        $journals->getCollection()->transform(fn (ManualJournal $journal) => $this->withEntryAccountNames($journal));
+
+        return response()->json($journals);
     }
 
     public function store(Request $request)
@@ -80,13 +83,13 @@ class ManualJournalController extends Controller
             return $journal;
         });
 
-        return response()->json($journal->load(['debitAccount', 'creditAccount', 'journalEntry.lines']), 201);
+        return response()->json($this->withEntryAccountNames($journal->load(['debitAccount', 'creditAccount', 'journalEntry.lines'])), 201);
     }
 
     public function show(ManualJournal $manualJournal)
     {
         $this->ensureCompanyAccess($manualJournal->company_id);
-        return response()->json($manualJournal->load(['debitAccount', 'creditAccount', 'journalEntry.lines']));
+        return response()->json($this->withEntryAccountNames($manualJournal->load(['debitAccount', 'creditAccount', 'journalEntry.lines'])));
     }
 
     public function update(Request $request, ManualJournal $manualJournal)
@@ -127,7 +130,7 @@ class ManualJournalController extends Controller
             $this->syncPostedJournalEntry($manualJournal->refresh());
         });
 
-        return response()->json($manualJournal->refresh()->load(['debitAccount', 'creditAccount', 'journalEntry.lines']));
+        return response()->json($this->withEntryAccountNames($manualJournal->refresh()->load(['debitAccount', 'creditAccount', 'journalEntry.lines'])));
     }
 
     public function destroy(ManualJournal $manualJournal)
@@ -173,9 +176,49 @@ class ManualJournalController extends Controller
 
         return response()->json([
             'message' => 'Manual journal reversed',
-            'manual_journal' => $manualJournal->refresh()->load(['debitAccount', 'creditAccount', 'journalEntry.lines']),
+            'manual_journal' => $this->withEntryAccountNames($manualJournal->refresh()->load(['debitAccount', 'creditAccount', 'journalEntry.lines'])),
             'reversal_entry' => $reversal,
         ]);
+    }
+
+    private function withEntryAccountNames(ManualJournal $journal): ManualJournal
+    {
+        if (empty($journal->entries) || ! is_array($journal->entries)) {
+            return $journal;
+        }
+
+        $accountIds = collect($journal->entries)
+            ->pluck('account_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($accountIds->isEmpty()) {
+            return $journal;
+        }
+
+        $accounts = ChartAccount::query()
+            ->where('company_id', $journal->company_id)
+            ->whereIn('id', $accountIds)
+            ->get(['id', 'name', 'code'])
+            ->keyBy('id');
+
+        $entries = collect($journal->entries)->map(function ($entry) use ($accounts) {
+            $account = $accounts->get($entry['account_id'] ?? null);
+
+            if (! $account) {
+                return $entry;
+            }
+
+            return array_merge($entry, [
+                'account_name' => $account->name,
+                'account_code' => $account->code,
+            ]);
+        })->all();
+
+        $journal->setAttribute('entries', $entries);
+
+        return $journal;
     }
 
     private function assertEditable(ManualJournal $manualJournal): void

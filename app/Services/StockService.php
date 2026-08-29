@@ -90,6 +90,36 @@ class StockService
         return $this->moveStock($product, $warehouseId, 0, $qty, $unitCost, 'purchase_reversal', $reference, $date, $userId, 'Purchase stock reversal');
     }
 
+    public function addSalesReturnStock(Product $product, int $warehouseId, float $qty, float $unitCost, object $reference, ?string $date = null, ?int $userId = null): ProductStock
+    {
+        return $this->moveStock($product, $warehouseId, $qty, 0, $unitCost, 'sales_return_in', $reference, $date, $userId, 'Sales return stock in');
+    }
+
+    public function removeSaleStock(Product $product, int $warehouseId, float $qty, float $unitCost, object $reference, ?string $date = null, ?int $userId = null): ProductStock
+    {
+        return $this->moveStock($product, $warehouseId, 0, $qty, $unitCost, 'sale_out', $reference, $date, $userId, 'Sales stock out');
+    }
+
+    public function restoreSaleStock(Product $product, int $warehouseId, float $qty, float $unitCost, object $reference, ?string $date = null, ?int $userId = null): ProductStock
+    {
+        return $this->moveStock($product, $warehouseId, $qty, 0, $unitCost, 'sale_reversal', $reference, $date, $userId, 'Sales stock reversal');
+    }
+
+    public function removePurchaseReturnStock(Product $product, int $warehouseId, float $qty, float $unitCost, object $reference, ?string $date = null, ?int $userId = null): ProductStock
+    {
+        return $this->moveStock($product, $warehouseId, 0, $qty, $unitCost, 'purchase_return_out', $reference, $date, $userId, 'Purchase return stock out');
+    }
+
+    public function restorePurchaseReturnStock(Product $product, int $warehouseId, float $qty, float $unitCost, object $reference, ?string $date = null, ?int $userId = null): ProductStock
+    {
+        return $this->moveStock($product, $warehouseId, $qty, 0, $unitCost, 'purchase_return_reversal', $reference, $date, $userId, 'Purchase return reversal');
+    }
+
+    public function removeSalesReturnStock(Product $product, int $warehouseId, float $qty, float $unitCost, object $reference, ?string $date = null, ?int $userId = null): ProductStock
+    {
+        return $this->moveStock($product, $warehouseId, 0, $qty, $unitCost, 'sales_return_reversal', $reference, $date, $userId, 'Sales return reversal');
+    }
+
     private function moveStock(Product $product, int $warehouseId, float $qtyIn, float $qtyOut, float $unitCost, string $movementType, object $reference, ?string $date, ?int $userId, string $notes): ProductStock
     {
         if ($qtyIn < 0 || $qtyOut < 0) {

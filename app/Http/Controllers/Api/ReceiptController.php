@@ -5,10 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\Receipt;
+use App\Services\AccountingPostingService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 class ReceiptController extends Controller
 {
+    public function __construct(private AccountingPostingService $postingService)
+    {
+    }
+
     public function index(Request $request)
     {
         $filters = $request->only(['q', 'customer_id', 'payment_mode', 'status', 'per_page']);
@@ -39,8 +45,9 @@ class ReceiptController extends Controller
             'customer_id' => 'nullable|exists:customers,id',
             'customer_name' => 'nullable|string',
             'receipt_date' => 'required|date',
-            'amount_received' => 'required|numeric|min:0',
+            'amount_received' => 'required|numeric|gt:0',
             'payment_mode' => 'required|in:cash,cheque,bank,online',
+            'credit_account_id' => 'nullable|exists:chart_accounts,id',
             'reference_number' => 'nullable|string',
             'description' => 'nullable|string',
             'status' => 'nullable|string',
@@ -60,7 +67,15 @@ class ReceiptController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['receipt_number'] = $validated['receipt_number'] ?? ('RCP-' . time());
 
-        $receipt = Receipt::create($validated);
+        $receipt = DB::transaction(function () use ($validated) {
+            $receipt = Receipt::create($validated);
+
+            if (($receipt->status ?? 'completed') === 'completed') {
+                $this->postReceiptJournal($receipt->load('customer'));
+            }
+
+            return $receipt;
+        });
 
         return response()->json($receipt->load('customer'), 201);
     }
@@ -79,8 +94,9 @@ class ReceiptController extends Controller
             'customer_id' => 'nullable|exists:customers,id',
             'customer_name' => 'nullable|string',
             'receipt_date' => 'required|date',
-            'amount_received' => 'required|numeric|min:0',
+            'amount_received' => 'required|numeric|gt:0',
             'payment_mode' => 'required|in:cash,cheque,bank,online',
+            'credit_account_id' => 'nullable|exists:chart_accounts,id',
             'reference_number' => 'nullable|string',
             'description' => 'nullable|string',
             'status' => 'nullable|string',
@@ -95,7 +111,14 @@ class ReceiptController extends Controller
             return response()->json(['message' => 'Customer not found'], 422);
         }
 
-        $receipt->update($validated);
+        DB::transaction(function () use ($receipt, $validated) {
+            $this->postingService->deleteForReference($receipt->company_id, Receipt::class, $receipt->id);
+            $receipt->update($validated);
+
+            if (($receipt->status ?? 'completed') === 'completed') {
+                $this->postReceiptJournal($receipt->refresh()->load('customer'));
+            }
+        });
 
         return response()->json($receipt->load('customer'));
     }
@@ -103,7 +126,10 @@ class ReceiptController extends Controller
     public function destroy(Receipt $receipt)
     {
         $this->ensureCompanyAccess($receipt->company_id);
-        $receipt->delete();
+        DB::transaction(function () use ($receipt) {
+            $this->postingService->deleteForReference($receipt->company_id, Receipt::class, $receipt->id);
+            $receipt->delete();
+        });
 
         return response()->json(['message' => 'Receipt deleted']);
     }
@@ -121,5 +147,48 @@ class ReceiptController extends Controller
         if ($companyId !== auth()->user()->company_id) {
             abort(404, 'Not found');
         }
+    }
+
+    private function postReceiptJournal(Receipt $receipt): void
+    {
+        $amount = round((float) $receipt->amount_received, 2);
+        $creditLine = [
+            'debit' => 0,
+            'credit' => $amount,
+            'narration' => "Receipt {$receipt->receipt_number}",
+        ];
+
+        if ($receipt->credit_account_id) {
+            $creditLine['account_id'] = $receipt->credit_account_id;
+        } elseif ($receipt->customer?->chart_account_id) {
+            $creditLine['account_id'] = $receipt->customer->chart_account_id;
+        } else {
+            $creditLine['key'] = 'accounts_receivable';
+        }
+
+        $this->postingService->post([
+            'company_id' => $receipt->company_id,
+            'reference_type' => Receipt::class,
+            'reference_id' => $receipt->id,
+            'entry_date' => $receipt->receipt_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Receipt #{$receipt->receipt_number}",
+            'created_by' => $receipt->recorded_by,
+            'lines' => [
+                [
+                    'key' => $this->paymentModeKey($receipt->payment_mode),
+                    'debit' => $amount,
+                    'credit' => 0,
+                    'narration' => "Receipt received {$receipt->receipt_number}",
+                ],
+                $creditLine,
+            ],
+        ]);
+    }
+
+    private function paymentModeKey(?string $mode): string
+    {
+        $mode = strtolower((string) $mode);
+
+        return in_array($mode, ['bank', 'cheque', 'online'], true) ? 'bank' : 'cash';
     }
 }

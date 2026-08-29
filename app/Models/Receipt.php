@@ -13,6 +13,7 @@ class Receipt extends Model
         'company_id',
         'receipt_number',
         'customer_id',
+        'credit_account_id',
         'receipt_date',
         'amount_received',
         'payment_mode',

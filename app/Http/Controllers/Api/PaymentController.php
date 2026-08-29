@@ -5,10 +5,16 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Models\Vendor;
+use App\Services\AccountingPostingService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 class PaymentController extends Controller
 {
+    public function __construct(private AccountingPostingService $postingService)
+    {
+    }
+
     public function index(Request $request)
     {
         $companyId = auth()->user()->company_id;
@@ -36,8 +42,9 @@ class PaymentController extends Controller
             'vendor_id' => 'nullable|exists:vendors,id',
             'vendor_name' => 'nullable|string',
             'payment_date' => 'required|date',
-            'amount_paid' => 'required|numeric|min:0',
+            'amount_paid' => 'required|numeric|gt:0',
             'payment_mode' => 'required|string',
+            'debit_account_id' => 'nullable|exists:chart_accounts,id',
             'invoice_reference' => 'nullable|string',
             'cheque_number' => 'nullable|string',
             'description' => 'nullable|string',
@@ -58,7 +65,15 @@ class PaymentController extends Controller
         $validated['status'] = $validated['status'] ?? 'completed';
         $validated['payment_number'] = $validated['payment_number'] ?? ('PAY-' . time());
 
-        $payment = Payment::create($validated);
+        $payment = DB::transaction(function () use ($validated) {
+            $payment = Payment::create($validated);
+
+            if (($payment->status ?? 'completed') === 'completed') {
+                $this->postPaymentJournal($payment->load('vendor'));
+            }
+
+            return $payment;
+        });
 
         return response()->json($payment->load('vendor'), 201);
     }
@@ -77,8 +92,9 @@ class PaymentController extends Controller
             'vendor_id' => 'nullable|exists:vendors,id',
             'vendor_name' => 'nullable|string',
             'payment_date' => 'required|date',
-            'amount_paid' => 'required|numeric|min:0',
+            'amount_paid' => 'required|numeric|gt:0',
             'payment_mode' => 'required|string',
+            'debit_account_id' => 'nullable|exists:chart_accounts,id',
             'invoice_reference' => 'nullable|string',
             'cheque_number' => 'nullable|string',
             'description' => 'nullable|string',
@@ -94,7 +110,14 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Vendor not found'], 422);
         }
 
-        $payment->update($validated);
+        DB::transaction(function () use ($payment, $validated) {
+            $this->postingService->deleteForReference($payment->company_id, Payment::class, $payment->id);
+            $payment->update($validated);
+
+            if (($payment->status ?? 'completed') === 'completed') {
+                $this->postPaymentJournal($payment->refresh()->load('vendor'));
+            }
+        });
 
         return response()->json($payment->load('vendor'));
     }
@@ -102,7 +125,10 @@ class PaymentController extends Controller
     public function destroy(Payment $payment)
     {
         $this->ensureCompanyAccess($payment->company_id);
-        $payment->delete();
+        DB::transaction(function () use ($payment) {
+            $this->postingService->deleteForReference($payment->company_id, Payment::class, $payment->id);
+            $payment->delete();
+        });
 
         return response()->json(['message' => 'Payment deleted']);
     }
@@ -120,5 +146,54 @@ class PaymentController extends Controller
         if ($companyId !== auth()->user()->company_id) {
             abort(404, 'Not found');
         }
+    }
+
+    private function postPaymentJournal(Payment $payment): void
+    {
+        $amount = round((float) $payment->amount_paid, 2);
+        $debitLine = [
+            'debit' => $amount,
+            'credit' => 0,
+            'narration' => "Payment {$payment->payment_number}",
+        ];
+
+        if ($payment->debit_account_id) {
+            $debitLine['account_id'] = $payment->debit_account_id;
+        } elseif ($payment->vendor?->chart_account_id) {
+            $debitLine['account_id'] = $payment->vendor->chart_account_id;
+        } else {
+            $debitLine['key'] = 'accounts_payable';
+        }
+
+        $this->postingService->post([
+            'company_id' => $payment->company_id,
+            'reference_type' => Payment::class,
+            'reference_id' => $payment->id,
+            'entry_date' => $payment->payment_date?->toDateString() ?? now()->toDateString(),
+            'description' => "Payment #{$payment->payment_number}",
+            'created_by' => $payment->recorded_by,
+            'lines' => [
+                $debitLine,
+                [
+                    'key' => $this->paymentModeKey($payment->payment_mode),
+                    'debit' => 0,
+                    'credit' => $amount,
+                    'narration' => "Payment made {$payment->payment_number}",
+                ],
+            ],
+        ]);
+    }
+
+    private function paymentModeKey(?string $mode): string
+    {
+        $mode = strtolower((string) $mode);
+
+        return str_contains($mode, 'bank')
+            || str_contains($mode, 'cheque')
+            || str_contains($mode, 'check')
+            || str_contains($mode, 'online')
+            || str_contains($mode, 'transfer')
+                ? 'bank'
+                : 'cash';
     }
 }

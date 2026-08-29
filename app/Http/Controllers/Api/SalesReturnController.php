@@ -49,7 +49,7 @@ class SalesReturnController extends Controller
     // DELETE /api/sales-returns/{id}
     public function destroy(SalesReturn $salesReturn)
     {
-        $salesReturn->delete();
+        $this->service->deleteReturn($salesReturn);
         return response()->noContent();
     }
 }

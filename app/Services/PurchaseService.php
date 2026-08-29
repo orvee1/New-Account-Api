@@ -433,6 +433,62 @@ class PurchaseService
         });
     }
 
+    public function deleteReturn(PurchaseReturn $return): void
+    {
+        DB::transaction(function () use ($return) {
+            $return->loadMissing('items.product');
+
+            foreach ($return->items as $item) {
+                $product = $item->product;
+
+                if (! $product || ! in_array($product->product_type, ['Stock', 'Combo'], true)) {
+                    continue;
+                }
+
+                $restoredQty = (float) $item->qty_base;
+                $unitCost = (float) $item->rate_per_base;
+                $oldStock = (float) $product->current_stock_in_base_uom;
+                $oldAvg = (float) $product->weighted_avg_cost;
+                $newStock = round($oldStock + $restoredQty, 4);
+                $newAvg = $newStock > 0
+                    ? (($oldStock * $oldAvg) + ($restoredQty * $unitCost)) / $newStock
+                    : 0;
+
+                $product->update([
+                    'current_stock_in_base_uom' => $newStock,
+                    'weighted_avg_cost' => $newAvg,
+                ]);
+
+                InventoryLedger::create([
+                    'product_id' => $product->id,
+                    'reference_id' => $return->id,
+                    'reference_type' => 'purchase_return_reversal',
+                    'qty_in' => $restoredQty,
+                    'qty_out' => 0,
+                    'qty_balance' => $newStock,
+                    'unit_cost' => $unitCost,
+                    'total_cost' => $restoredQty * $unitCost,
+                    'new_weighted_avg_cost' => $newAvg,
+                ]);
+
+                if ($item->warehouse_id) {
+                    $this->stockService->restorePurchaseReturnStock(
+                        $product,
+                        (int) $item->warehouse_id,
+                        $restoredQty,
+                        $unitCost,
+                        $return,
+                        $return->return_date?->toDateString(),
+                        Auth::id() ?? $return->created_by
+                    );
+                }
+            }
+
+            $this->postingService->deleteForReference($return->company_id, PurchaseReturn::class, $return->id);
+            $return->delete();
+        });
+    }
+
     private function reverseBillImpact(PurchaseBill $bill)
     {
         // 1. Reverse Stock and WAC for each item (Only if confirmed)
@@ -526,6 +582,8 @@ class PurchaseService
                 'updated_by'     => $userId,
             ]);
 
+            $this->postPurchaseReturnJournal($return->refresh()->load(['vendor', 'items.product']));
+
             return $return->load(['vendor', 'items.product']);
         });
     }
@@ -590,6 +648,48 @@ class PurchaseService
             ]);
 
             if (in_array($product->product_type, ['Stock', 'Combo'], true)) {
+                $oldStock = (float) $product->current_stock_in_base_uom;
+                $oldAvg = (float) $product->weighted_avg_cost;
+                $oldValue = $oldStock * $oldAvg;
+                $returnValue = $qtyBase * $rateBase;
+                $newStock = round($oldStock - $qtyBase, 4);
+                $newAvg = $oldAvg;
+
+                if ($newStock > 0) {
+                    $newAvg = ($oldValue - $returnValue) / $newStock;
+                } elseif ($newStock == 0.0) {
+                    $newAvg = 0;
+                }
+
+                $product->update([
+                    'current_stock_in_base_uom' => $newStock,
+                    'weighted_avg_cost' => $newAvg,
+                ]);
+
+                InventoryLedger::create([
+                    'product_id' => $product->id,
+                    'reference_id' => $return->id,
+                    'reference_type' => 'purchase_return',
+                    'qty_in' => 0,
+                    'qty_out' => $qtyBase,
+                    'qty_balance' => $newStock,
+                    'unit_cost' => $rateBase,
+                    'total_cost' => $returnValue,
+                    'new_weighted_avg_cost' => $newAvg,
+                ]);
+
+                if ($warehouseId) {
+                    $this->stockService->removePurchaseReturnStock(
+                        $product,
+                        (int) $warehouseId,
+                        $qtyBase,
+                        $rateBase,
+                        $return,
+                        $return->return_date?->toDateString(),
+                        $userId
+                    );
+                }
+
                 InventoryMovement::create([
                     'company_id' => $return->company_id,
                     'product_id' => $product->id,
@@ -609,6 +709,63 @@ class PurchaseService
         }
 
         return ['subtotal' => $subtotal, 'discount_total' => $discountTotal];
+    }
+
+    private function postPurchaseReturnJournal(PurchaseReturn $return): void
+    {
+        $return->loadMissing(['vendor', 'items']);
+
+        $inventoryCredit = round((float) $return->items->sum('line_total'), 2);
+        $taxDebit = round((float) $return->tax_amount, 2);
+        $payableDebit = round((float) $return->total_amount, 2);
+
+        $lines = [];
+
+        if ($payableDebit > 0) {
+            $payableLine = [
+                'debit' => $payableDebit,
+                'credit' => 0,
+                'narration' => "Purchase return payable reduction {$return->return_no}",
+            ];
+
+            if ($return->vendor?->chart_account_id) {
+                $payableLine['account_id'] = $return->vendor->chart_account_id;
+            } else {
+                $payableLine['key'] = 'accounts_payable';
+            }
+
+            $lines[] = $payableLine;
+        }
+
+        if ($taxDebit > 0) {
+            $lines[] = [
+                'key' => 'input_vat_receivable',
+                'debit' => 0,
+                'credit' => $taxDebit,
+                'narration' => "Input VAT reversed {$return->return_no}",
+            ];
+        }
+
+        if ($inventoryCredit > 0) {
+            $lines[] = [
+                'key' => 'inventory',
+                'debit' => 0,
+                'credit' => $inventoryCredit,
+                'narration' => "Inventory returned to vendor {$return->return_no}",
+            ];
+        }
+
+        if (count($lines) >= 2) {
+            $this->postingService->post([
+                'company_id' => $return->company_id,
+                'reference_type' => PurchaseReturn::class,
+                'reference_id' => $return->id,
+                'entry_date' => $return->return_date?->toDateString() ?? now()->toDateString(),
+                'description' => "Purchase Return #{$return->return_no}",
+                'created_by' => Auth::id() ?? $return->created_by,
+                'lines' => $lines,
+            ]);
+        }
     }
 
     private function getSetting(int $companyId, string $key, $default)

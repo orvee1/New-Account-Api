@@ -11,6 +11,7 @@ use App\Models\SalesJournalEntry;
 use App\Models\SalesPayment;
 use App\Models\SalesReturn;
 use App\Models\SalesReturnItem;
+use App\Models\Warehouse;
 use Exception;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +20,8 @@ use Illuminate\Support\Facades\DB;
 class SalesInvoiceService
 {
     public function __construct(
-        private AccountingPostingService $postingService
+        private AccountingPostingService $postingService,
+        private StockService $stockService
     ) {
     }
 
@@ -246,6 +248,7 @@ class SalesInvoiceService
             if ($this->isStockTracked($product)) {
                 $newStock = round((float) $product->current_stock_in_base_uom - $saleQtyInBase, 4);
                 $product->update(['current_stock_in_base_uom' => $newStock]);
+                $warehouseId = $this->resolveWarehouseId($invoice, $product);
 
                 InventoryLedger::create([
                     'product_id' => $product->id,
@@ -258,6 +261,18 @@ class SalesInvoiceService
                     'total_cost' => $cogs,
                     'new_weighted_avg_cost' => $weightedAvgCost,
                 ]);
+
+                if ($warehouseId) {
+                    $this->stockService->removeSaleStock(
+                        $product,
+                        $warehouseId,
+                        $saleQtyInBase,
+                        $weightedAvgCost,
+                        $invoice,
+                        $invoice->invoice_date?->toDateString(),
+                        $invoice->created_by
+                    );
+                }
             }
 
             $totals['subtotal'] += $lineGrossAmount;
@@ -411,6 +426,7 @@ class SalesInvoiceService
             $restoredQty = (float) $item->quantity_in_base_uom;
             $newStock = round((float) $product->current_stock_in_base_uom + $restoredQty, 4);
             $product->update(['current_stock_in_base_uom' => $newStock]);
+            $warehouseId = $this->resolveWarehouseId($invoice, $product);
 
             InventoryLedger::create([
                 'product_id' => $product->id,
@@ -423,6 +439,18 @@ class SalesInvoiceService
                 'total_cost' => (float) $item->cogs,
                 'new_weighted_avg_cost' => (float) $product->weighted_avg_cost,
             ]);
+
+            if ($warehouseId) {
+                $this->stockService->restoreSaleStock(
+                    $product,
+                    $warehouseId,
+                    $restoredQty,
+                    (float) $item->weighted_avg_cost,
+                    $invoice,
+                    $invoice->invoice_date?->toDateString(),
+                    Auth::id() ?? $invoice->created_by
+                );
+            }
         }
 
         $invoice->items()->delete();
@@ -469,6 +497,20 @@ class SalesInvoiceService
 
     private function postPaymentJournal(SalesPayment $payment, SalesInvoice $invoice): void
     {
+        $invoice->loadMissing('customer');
+
+        $receivableLine = [
+            'debit' => 0,
+            'credit' => (float) $payment->amount,
+            'narration' => "Receivable cleared for {$invoice->invoice_no}",
+        ];
+
+        if ($invoice->customer?->chart_account_id) {
+            $receivableLine['account_id'] = $invoice->customer->chart_account_id;
+        } else {
+            $receivableLine['key'] = 'accounts_receivable';
+        }
+
         $this->postingService->post([
             'company_id' => $payment->company_id,
             'reference_type' => SalesPayment::class,
@@ -483,12 +525,7 @@ class SalesInvoiceService
                     'credit' => 0,
                     'narration' => "Payment received for {$invoice->invoice_no}",
                 ],
-                [
-                    'key' => 'accounts_receivable',
-                    'debit' => 0,
-                    'credit' => (float) $payment->amount,
-                    'narration' => "Receivable cleared for {$invoice->invoice_no}",
-                ],
+                $receivableLine,
             ],
         ]);
     }
@@ -546,5 +583,20 @@ class SalesInvoiceService
     private function isStockTracked(Product $product): bool
     {
         return in_array($product->product_type, ['Stock', 'Combo'], true);
+    }
+
+    private function resolveWarehouseId(SalesInvoice $invoice, Product $product): ?int
+    {
+        $warehouseId = $invoice->warehouse_id ?? $product->warehouse_id;
+
+        if ($warehouseId) {
+            return (int) $warehouseId;
+        }
+
+        return Warehouse::query()
+            ->where('company_id', $invoice->company_id)
+            ->orderByDesc('is_default')
+            ->orderBy('id')
+            ->value('id');
     }
 }

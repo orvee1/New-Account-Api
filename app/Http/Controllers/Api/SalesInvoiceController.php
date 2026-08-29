@@ -7,11 +7,15 @@ use App\Models\SalesInvoice;
 use App\Http\Requests\StoreSalesInvoiceRequest;
 use App\Http\Resources\SalesInvoiceResource;
 use App\Services\SalesInvoiceService;
+use App\Services\SalesReturnService;
 use Illuminate\Http\Request;
 
 class SalesInvoiceController extends Controller
 {
-    public function __construct(private SalesInvoiceService $service) {}
+    public function __construct(
+        private SalesInvoiceService $service,
+        private SalesReturnService $salesReturnService
+    ) {}
 
     // GET /api/sales-invoices?q=&customer_id=&date_from=&date_to=&status=&per_page=20
     public function index(Request $request)
@@ -68,7 +72,12 @@ class SalesInvoiceController extends Controller
     public function createReturn(Request $request, SalesInvoice $salesInvoice)
     {
         abort_if((int) $salesInvoice->company_id !== (int) auth('sanctum')->user()->company_id, 404);
-        $return = $this->service->createReturn($salesInvoice, $request->all());
+        $payload = array_merge($request->all(), [
+            'customer_id' => $salesInvoice->customer_id,
+            'sales_invoice_id' => $salesInvoice->id,
+            'return_date' => $request->input('return_date', now()->toDateString()),
+        ]);
+        $return = $this->salesReturnService->createReturn($payload, auth('sanctum')->id());
         return response()->json([
             'message' => 'Sales Return created successfully',
             'return' => $return,

@@ -47,7 +47,7 @@ class CustomerOpeningBalanceService
 
         return DB::transaction(function () use ($customer, $amount, $type, $accountReceivable, $customerAdvance, $openingEquity) {
             $je = JournalEntry::create([
-                'entry_date'       => Carbon::today(),
+                'entry_date'       => $customer->opening_balance_date ? Carbon::parse($customer->opening_balance_date) : Carbon::today(),
                 'company_id'       => $customer->company_id,
                 'reference_id'     => $customer->id,
                 'reference_type'   => Customer::class,
